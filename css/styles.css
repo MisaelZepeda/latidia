@@ -405,3 +405,31 @@ input.big { font-size: 1.6rem; font-weight: 700; text-align: center; }
 @keyframes beat { 0%, 100% { transform: scale(1); } 15% { transform: scale(1.12); } 30% { transform: scale(1); } 45% { transform: scale(1.08); } }
 
 [hidden] { display: none !important; }
+
+/* ============ Formulario de medicamentos ============ */
+.combo { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px; align-items: center; }
+.combo select { width: auto; min-width: 84px; }
+.unit-suffix { font-size: .88rem; color: var(--muted); font-weight: 600; min-width: 64px; }
+.preview-box { background: var(--primary-soft); border-radius: 12px; padding: 12px 14px; }
+.preview-box .chip { background: var(--surface); color: var(--text); }
+.report-actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr)); gap: 10px; margin-top: 16px; max-width: 520px; }
+
+/* ============ Ajustes para iPhone / pantallas táctiles ============ */
+/* clip (no hidden) para no romper la barra superior fija */
+html, body { overflow-x: clip; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+.view, .card, .field, .fields > *, .modal-body > * { min-width: 0; max-width: 100%; }
+/* Safari iOS da a los campos de fecha/hora un ancho mínimo propio que los hace encimarse */
+input[type="date"], input[type="time"] {
+  -webkit-appearance: none; appearance: none; display: block; min-width: 0; max-width: 100%;
+  text-align: left; line-height: 1.3;
+}
+input[type="date"]::-webkit-date-and-time-value, input[type="time"]::-webkit-date-and-time-value { text-align: left; margin: 0; }
+input[type="date"]::-webkit-calendar-picker-indicator { margin-left: auto; }
+@media (max-width: 600px) {
+  /* 16px evita que iOS haga zoom al escribir (el zoom deja la página "desbordada") */
+  input, select, textarea { font-size: 16px; }
+  .fields { grid-template-columns: repeat(auto-fit, minmax(min(140px, 100%), 1fr)); }
+  .seg button { padding: 7px 10px; }
+  .item-actions .icon-btn { width: 36px; }
+  .times .t input { width: 110px; }
+}

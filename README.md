@@ -10,9 +10,9 @@ HTML + CSS + JavaScript puro, alojada en GitHub Pages, con **inicio de sesión y
 |---|---|
 | **Inicio** | Última toma, promedios de 7 días, dosis de hoy, próximas citas y tendencia de 14 días |
 | **Signos** | Presión (sistólica/diastólica), pulso, temperatura, SpO₂, glucosa y peso. Clasificación automática AHA/ACC 2017 y gráfico |
-| **Medicinas** | Horarios y días por medicamento, marcar dosis tomada/omitida, adherencia, exportación de alarmas al calendario del teléfono (.ics) |
+| **Medicinas** | Presentación (tableta, cápsula, jarabe, suspensión…), dosis con unidad (mg, g, ml, UI…) y cantidad por toma. Frecuencia *cada X horas* desde la primera toma (calcula automáticamente las siguientes tomas, la fecha final y el total del tratamiento) u horarios fijos por día. Marcar dosis tomada/omitida (con confirmación para desmarcar), adherencia, exportación de alarmas al calendario del teléfono (.ics) |
 | **Agenda** | Calendario mensual de consultas, exámenes y otros eventos, con recordatorio configurable y aviso un día antes |
-| **Reportes** | Rango por fechas o atajos (7/30/90 días, este mes, mes anterior): promedios, mín–máx, clasificación, promedios por horario, adherencia y tabla. Imprimir/Guardar PDF, CSV para Excel y Compartir |
+| **Reportes** | Rango por fechas o atajos (7/30/90 días, este mes, mes anterior): promedios, mín–máx, clasificación, promedios por horario, adherencia y tabla. **PDF profesional tamaño carta** (encabezado, datos del paciente y edad, resumen, gráfica, clasificación, medicamentos, detalle y numeración de páginas) y CSV para Excel. En el celular se abre el menú de compartir (guardar en Archivos, imprimir, WhatsApp, correo) |
 | **Cuenta** | Inicio de sesión con correo/contraseña o Google, recuperación de contraseña, sincronización en tiempo real y uso sin conexión |
 | **Ajustes** | Perfil para reportes, notificaciones, horarios para medir la presión, tema claro/oscuro, respaldo e importación JSON |
 

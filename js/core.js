@@ -73,16 +73,33 @@
   }
   const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 
+  // Medicamento por intervalo ("cada N horas" desde la primera toma) o por horarios fijos (formato original)
+  const isInterval = med => med.mode === 'interval' && Number(med.every) > 0;
+
   // ¿Le toca este medicamento en esta fecha?
   function medScheduledOn(med, dateStr) {
     if (med.active === false) return false;
     if (med.start && dateStr < med.start) return false;
     if (med.end && dateStr > med.end) return false;
-    if (med.days && med.days.length && med.days.length < 7) {
+    if (!isInterval(med) && med.days && med.days.length && med.days.length < 7) {
       const dow = at(dateStr).getDay();
       if (!med.days.includes(dow)) return false;
     }
     return true;
+  }
+
+  // Horas de toma de un medicamento en una fecha (HH:MM)
+  function medTimesOn(med, dateStr) {
+    if (!isInterval(med)) return med.times || [];
+    const step = Number(med.every) * 3600000;
+    const anchor = at(med.start || dateStr, med.firstTime || '08:00').getTime();
+    const dayStart = at(dateStr).getTime();
+    const dayEnd = at(dateStr).setDate(at(dateStr).getDate() + 1);
+    if (dayEnd <= anchor) return [];
+    const out = [];
+    let t = anchor + Math.max(0, Math.ceil((dayStart - anchor) / step)) * step;
+    for (; t < dayEnd; t += step) out.push(timeKey(new Date(t)));
+    return [...new Set(out)];
   }
 
   // Dosis programadas de un día: [{med, time, key}]
@@ -90,9 +107,24 @@
     const out = [];
     for (const med of meds) {
       if (!medScheduledOn(med, dateStr)) continue;
-      for (const t of med.times || []) out.push({ med, time: t, key: `${med.id}|${dateStr}|${t}` });
+      for (const t of medTimesOn(med, dateStr)) out.push({ med, time: t, key: `${med.id}|${dateStr}|${t}` });
     }
     return out.sort((a, b) => a.time.localeCompare(b.time));
+  }
+
+  // Próximas N tomas a partir de un momento: [{date, time, when}]
+  function nextDoses(med, from, count) {
+    const out = [];
+    let ds = dateKey(from);
+    for (let i = 0; i < 400 && out.length < count; i++, ds = dateKey(new Date(at(ds).setDate(at(ds).getDate() + 1)))) {
+      if (med.end && ds > med.end) break;
+      if (!medScheduledOn(Object.assign({}, med, { active: true }), ds)) continue;
+      for (const t of medTimesOn(med, ds)) {
+        const when = at(ds, t);
+        if (when >= from && out.length < count) out.push({ date: ds, time: t, when });
+      }
+    }
+    return out;
   }
 
   // ---------- Clasificación de presión arterial (AHA/ACC 2017) ----------
@@ -225,5 +257,5 @@
     await DB.setKV('snoozed', list);
   }
 
-  g.MS = { DB, pad, dateKey, timeKey, at, uid, medScheduledOn, dosesForDate, bpCategory, computeDue, runReminders, markTaken, snooze };
+  g.MS = { DB, pad, dateKey, timeKey, at, uid, medScheduledOn, medTimesOn, nextDoses, isInterval, dosesForDate, bpCategory, computeDue, runReminders, markTaken, snooze };
 })(typeof self !== 'undefined' ? self : window);

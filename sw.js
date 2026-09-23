@@ -1,8 +1,9 @@
 /* MedicSoft — service worker: caché offline + notificaciones */
 importScripts('js/core.js');
 
-const CACHE = 'medicsoft-v2';
-const FIREBASE_CDN = 'https://www.gstatic.com/firebasejs/';
+const CACHE = 'medicsoft-v3';
+// Librerías externas versionadas (no cambian): caché primero
+const CDN = ['https://www.gstatic.com/firebasejs/', 'https://cdn.jsdelivr.net/npm/'];
 const ASSETS = [
   './',
   'index.html',
@@ -13,6 +14,7 @@ const ASSETS = [
   'js/cloud.js',
   'js/icons.js',
   'js/chart.js',
+  'js/report-pdf.js',
   'js/app.js',
   'icons/icon-192.png',
   'icons/icon-512.png',
@@ -36,8 +38,7 @@ self.addEventListener('activate', e => {
 self.addEventListener('fetch', e => {
   const req = e.request;
   if (req.method !== 'GET') return;
-  // SDK de Firebase (versionado, no cambia): caché primero para que la app abra sin conexión
-  if (req.url.startsWith(FIREBASE_CDN)) {
+  if (CDN.some(c => req.url.startsWith(c))) {
     e.respondWith(caches.match(req).then(hit => hit || fetch(req).then(res => {
       if (res.ok) { const copy = res.clone(); caches.open(CACHE).then(c => c.put(req, copy)); }
       return res;

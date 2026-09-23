@@ -11,6 +11,51 @@
   const avg = arr => arr.length ? Math.round(arr.reduce((a, b) => a + b, 0) / arr.length) : null;
   const num = v => (v === '' || v == null || isNaN(+v)) ? null : +v;
 
+  // Presentaciones: u1/u2 = unidad de la cantidad por toma (singular/plural)
+  const PRESENTATIONS = {
+    tableta: { label: 'Tableta', u1: 'tableta', u2: 'tabletas' },
+    capsula: { label: 'Cápsula', u1: 'cápsula', u2: 'cápsulas' },
+    pastilla: { label: 'Pastilla', u1: 'pastilla', u2: 'pastillas' },
+    gragea: { label: 'Gragea', u1: 'gragea', u2: 'grageas' },
+    jarabe: { label: 'Jarabe', u1: 'ml', u2: 'ml', liquid: true },
+    suspension: { label: 'Suspensión', u1: 'ml', u2: 'ml', liquid: true },
+    solucion: { label: 'Solución oral', u1: 'ml', u2: 'ml', liquid: true },
+    gotas: { label: 'Gotas', u1: 'gota', u2: 'gotas' },
+    inyeccion: { label: 'Inyección', u1: 'ml', u2: 'ml', liquid: true },
+    sobre: { label: 'Sobre / polvo', u1: 'sobre', u2: 'sobres' },
+    inhalador: { label: 'Inhalador', u1: 'disparo', u2: 'disparos' },
+    parche: { label: 'Parche', u1: 'parche', u2: 'parches' },
+    crema: { label: 'Crema / pomada', u1: 'aplicación', u2: 'aplicaciones' },
+    supositorio: { label: 'Supositorio', u1: 'supositorio', u2: 'supositorios' },
+    ovulo: { label: 'Óvulo', u1: 'óvulo', u2: 'óvulos' },
+    otro: { label: 'Otro', u1: 'dosis', u2: 'dosis' }
+  };
+  const STRENGTH_UNITS = ['mg', 'g', 'mcg', 'ml', 'UI', 'mg/ml', 'mg/5 ml', '%'];
+  const EVERY_OPTS = [[4, 'Cada 4 horas'], [6, 'Cada 6 horas'], [8, 'Cada 8 horas'], [12, 'Cada 12 horas'], [24, 'Una vez al día (24 h)'], [48, 'Cada 48 horas'], [72, 'Cada 72 horas'], [168, 'Una vez a la semana']];
+  const fmtQty = q => {
+    const n = Number(q), w = Math.floor(n), f = Math.round((n - w) * 100) / 100;
+    const fr = { 0.25: '¼', 0.5: '½', 0.75: '¾' }[f];
+    return fr ? (w ? w + ' ' : '') + fr : String(n).replace('.', ',');
+  };
+  // "1 tableta · 50 mg", "5 ml de jarabe · 250 mg/5 ml"; si no hay datos estructurados usa el texto original
+  function doseLabel(m) {
+    const P = PRESENTATIONS[m.form];
+    const parts = [];
+    if (m.qty) parts.push(`${fmtQty(m.qty)} ${P ? (Number(m.qty) <= 1 ? P.u1 : P.u2) : ''}${P && P.liquid ? ' de ' + P.label.toLowerCase() : ''}`.trim());
+    else if (P) parts.push(P.label);
+    if (m.strength) parts.push(`${String(m.strength).replace('.', ',')} ${m.unit || ''}`.trim());
+    return parts.length ? parts.join(' · ') : (m.dose || '');
+  }
+  function schedLabel(m) {
+    if (MS.isInterval(m)) {
+      const e = Number(m.every);
+      const txt = e === 24 ? 'Una vez al día' : e === 168 ? 'Una vez a la semana' : `Cada ${e} h`;
+      return `${txt} · 1.ª toma ${m.firstTime || '08:00'}${m.start ? ' del ' + fmtDate(m.start, { day: 'numeric', month: 'short' }) : ''}`;
+    }
+    const days = !m.days || m.days.length === 7 || !m.days.length ? 'todos los días' : m.days.slice().sort().map(d => DOW[d]).join(', ');
+    return `${(m.times || []).join(' · ')} — ${days}`;
+  }
+
   const DOW = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
   const DOW1 = ['D', 'L', 'M', 'M', 'J', 'V', 'S'];
   const fmtDate = (ds, opts) => at(ds).toLocaleDateString('es', opts || { weekday: 'short', day: 'numeric', month: 'short' });
@@ -83,9 +128,11 @@
     return form;
   }
   const confirmDlg = (title, text, submit = 'Eliminar') => new Promise(res => {
-    let ok = false;
-    modal({ title, body: `<p>${text}</p>`, submit, danger: true, onSubmit: () => { ok = true; } });
-    $('#modal').addEventListener('close', () => res(ok), { once: true });
+    let done = false;
+    const finish = v => { if (!done) { done = true; res(v); } };
+    modal({ title, body: `<p>${text}</p>`, submit, danger: true, onSubmit: () => finish(true) });
+    $$('#modalForm [data-close]').forEach(b => b.addEventListener('click', () => finish(false)));
+    $('#modal').addEventListener('close', () => finish(false), { once: true });
   });
 
   function download(name, content, type) {
@@ -358,7 +405,7 @@
     return `<div class="item dose ${st || ''}">
       <button class="dose-btn ${st || ''}" data-act="dose" data-key="${d.key}" aria-label="${st ? 'Deshacer' : 'Marcar como tomada'}">${icon(st === 'skipped' ? 'skip' : 'check')}</button>
       <div class="item-body"><div class="item-title">${esc(d.med.name)}</div>
-        <div class="item-sub">${d.time}${d.med.dose ? ' · ' + esc(d.med.dose) : ''}${st === 'taken' ? ' · <span style="color:var(--ok)">Tomada</span>' : st === 'skipped' ? ' · Omitida' : past ? ' · <span style="color:var(--warn)">Pendiente</span>' : ''}</div></div>
+        <div class="item-sub">${d.time}${doseLabel(d.med) ? ' · ' + esc(doseLabel(d.med)) : ''}${st === 'taken' ? ' · <span style="color:var(--ok)">Tomada</span>' : st === 'skipped' ? ' · Omitida' : past ? ' · <span style="color:var(--warn)">Pendiente</span>' : ''}</div></div>
       ${st ? '' : `<button class="icon-btn" data-act="dose-skip" data-key="${d.key}" title="Omitir" aria-label="Omitir">${icon('skip')}</button>`}
     </div>`;
   }
@@ -385,7 +432,6 @@
     const ds = state.medDay, im = intakeMap();
     const doses = dosesForDate(state.meds, ds);
     const ad = adherence(addDays(today(), -6), today());
-    const daysTxt = m => !m.days || m.days.length === 7 || !m.days.length ? 'Todos los días' : m.days.slice().sort().map(d => DOW[d]).join(', ');
     return `
     <div class="stack-v">
       <div class="grid cols-2">
@@ -414,8 +460,9 @@
         ${state.meds.length ? `<div class="list">${state.meds.map(m => `
           <div class="item" style="${m.active === false ? 'opacity:.55' : ''}">
             <div class="item-ic" style="background:var(--primary-soft);color:var(--primary)">${icon('pill')}</div>
-            <div class="item-body"><div class="item-title">${esc(m.name)} ${m.dose ? `<span class="muted" style="font-weight:400">· ${esc(m.dose)}</span>` : ''}</div>
-              <div class="item-sub">${(m.times || []).join(' · ')} — ${daysTxt(m)}${m.end ? ' · hasta ' + fmtDate(m.end, { day: 'numeric', month: 'short' }) : ''}${m.active === false ? ' · Pausado' : ''}</div>
+            <div class="item-body"><div class="item-title">${esc(m.name)} ${doseLabel(m) ? `<span class="muted" style="font-weight:400">· ${esc(doseLabel(m))}</span>` : ''}</div>
+              <div class="item-sub">${esc(schedLabel(m))}${m.end ? ' · hasta ' + fmtDate(m.end, { day: 'numeric', month: 'short' }) : ''}${m.active === false ? ' · Pausado' : ''}</div>
+              ${m.active !== false && MS.isInterval(m) ? (() => { const n = MS.nextDoses(m, new Date(), 1)[0]; return n ? `<div class="item-sub" style="color:var(--primary)">Próxima toma: ${relDay(n.date)} ${n.time}</div>` : ''; })() : ''}
               ${m.notes ? `<div class="item-sub">${esc(m.notes)}</div>` : ''}</div>
             <div class="item-actions">
               <button class="icon-btn" data-act="edit-med" data-id="${m.id}" aria-label="Editar">${icon('edit')}</button>
@@ -426,33 +473,141 @@
     </div>`;
   }
 
+  // Interpreta la dosis escrita a mano en versiones anteriores ("50 mg · 1 tableta")
+  function parseLegacyDose(txt) {
+    const out = {};
+    if (!txt) return out;
+    const t = txt.toLowerCase();
+    const st = t.match(/(\d+(?:[.,]\d+)?)\s*(mg\/5 ?ml|mg\/ml|mcg|mg|ml|ui|g|%)(?![a-z])/);
+    if (st) {
+      out.strength = st[1].replace(',', '.');
+      out.unit = STRENGTH_UNITS.find(u => u.toLowerCase().replace(' ', '') === st[2].replace(' ', '')) || st[2];
+    }
+    for (const [k, P] of Object.entries(PRESENTATIONS)) {
+      const re = new RegExp(`(\\d+(?:[.,]\\d+)?|½|media)?\\s*(${P.u1}|${P.u2}|${P.label.toLowerCase()})`);
+      const mm = k !== 'otro' && !P.liquid && t.normalize('NFD').replace(/[̀-ͯ]/g, '').match(new RegExp(re.source.normalize('NFD').replace(/[̀-ͯ]/g, '')));
+      if (mm) {
+        out.form = k;
+        out.qty = mm[1] ? (mm[1] === '½' || mm[1] === 'media' ? '0.5' : mm[1].replace(',', '.')) : '1';
+        break;
+      }
+    }
+    return out;
+  }
+
   function medForm(m) {
-    m = m || { times: ['08:00'], days: [0, 1, 2, 3, 4, 5, 6], start: today(), active: true };
-    const days = m.days && m.days.length ? m.days : [0, 1, 2, 3, 4, 5, 6];
+    const now = new Date();
+    const round5 = timeKey(new Date(Math.floor(now.getTime() / 300000) * 300000));
+    m = m || { mode: 'interval', every: 8, firstTime: round5, qty: 1, form: 'tableta', unit: 'mg', times: ['08:00'], days: [0, 1, 2, 3, 4, 5, 6], start: today(), active: true };
+    const legacy = !m.form && !m.strength && !m.qty ? parseLegacyDose(m.dose) : {};
+    const v = Object.assign({}, m, legacy);
+    const mode = MS.isInterval(m) ? 'interval' : m.id ? 'times' : 'interval';
+    const days = v.days && v.days.length ? v.days : [0, 1, 2, 3, 4, 5, 6];
     const order = [1, 2, 3, 4, 5, 6, 0];
+    const durDays = v.start && v.end ? Math.round((at(v.end) - at(v.start)) / 86400000) + 1 : '';
+    const everyOpts = EVERY_OPTS.some(([h]) => h === Number(v.every)) ? EVERY_OPTS : [...EVERY_OPTS, [Number(v.every), `Cada ${v.every} horas`]];
     modal({
       title: m.id ? 'Editar medicamento' : 'Nuevo medicamento',
       body: `
-        <label class="field"><span>Nombre</span><input name="name" required placeholder="Ej. Losartán" value="${esc(m.name)}"></label>
-        <label class="field"><span>Dosis</span><input name="dose" placeholder="Ej. 50 mg · 1 tableta" value="${esc(m.dose)}"></label>
-        <div class="field"><span>Horarios</span>${timesEditor(m.times || [])}</div>
-        <div class="field"><span>Días</span><div class="days">${order.map(d => `<label><input type="checkbox" name="days" value="${d}" ${days.includes(d) ? 'checked' : ''}><span>${DOW1[d]}</span></label>`).join('')}</div></div>
-        <div class="fields"><label class="field"><span>Inicio</span><input type="date" name="start" value="${esc(m.start)}"></label>
-          <label class="field"><span>Fin (opcional)</span><input type="date" name="end" value="${esc(m.end)}"></label></div>
-        <label class="field"><span>Indicaciones</span><textarea name="notes" placeholder="Ej. en ayunas, con alimentos…">${esc(m.notes)}</textarea></label>
-        <label class="check"><input type="checkbox" name="active" ${m.active !== false ? 'checked' : ''}> Activo (recibir recordatorios)</label>`,
-      onOpen: f => bindTimes(f),
+        <label class="field"><span>Nombre del medicamento</span><input name="name" required placeholder="Ej. Losartán, Paracetamol…" value="${esc(v.name)}"></label>
+        <label class="field"><span>Presentación</span><select name="form"><option value="">Seleccionar…</option>
+          ${Object.entries(PRESENTATIONS).map(([k, P]) => `<option value="${k}" ${v.form === k ? 'selected' : ''}>${P.label}</option>`).join('')}</select></label>
+        <div class="fields">
+          <div class="field"><span>Dosis / concentración</span><div class="combo">
+            <input name="strength" type="number" inputmode="decimal" step="any" min="0" placeholder="50" value="${esc(v.strength)}">
+            <select name="unit" aria-label="Unidad">${STRENGTH_UNITS.map(u => `<option ${v.unit === u ? 'selected' : ''}>${u}</option>`).join('')}</select></div></div>
+          <div class="field"><span>Cantidad por toma</span><div class="combo">
+            <input name="qty" type="number" inputmode="decimal" step="any" min="0" placeholder="1" value="${esc(v.qty)}">
+            <span class="unit-suffix" id="qtyUnit"></span></div></div>
+        </div>
+        ${m.id && m.dose && !m.form && !legacy.strength && !legacy.form ? `<div class="small muted">Dosis registrada anteriormente: <b>${esc(m.dose)}</b></div>` : ''}
+
+        <div class="field"><span>Frecuencia</span>
+          <div class="seg" style="width:100%"><button type="button" data-mode="interval" class="${mode === 'interval' ? 'active' : ''}" style="flex:1">Cada X horas</button>
+          <button type="button" data-mode="times" class="${mode === 'times' ? 'active' : ''}" style="flex:1">Horarios fijos</button></div>
+          <input type="hidden" name="mode" value="${mode}"></div>
+        <div data-block="interval" ${mode === 'interval' ? '' : 'hidden'}>
+          <label class="field"><span>Tomar</span><select name="every">${everyOpts.map(([h, l]) => `<option value="${h}" ${Number(v.every || 8) === h ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+        </div>
+        <div data-block="times" ${mode === 'times' ? '' : 'hidden'} class="stack-v" style="gap:14px">
+          <div class="field"><span>Horarios</span>${timesEditor(v.times || [])}</div>
+          <div class="field"><span>Días</span><div class="days">${order.map(d => `<label><input type="checkbox" name="days" value="${d}" ${days.includes(d) ? 'checked' : ''}><span>${DOW1[d]}</span></label>`).join('')}</div></div>
+        </div>
+        <div class="fields">
+          <label class="field"><span id="startLbl">${mode === 'interval' ? 'Fecha 1.ª toma' : 'Inicio'}</span><input type="date" name="start" required value="${esc(v.start || today())}"></label>
+          <label class="field" data-block="interval" ${mode === 'interval' ? '' : 'hidden'}><span>Hora 1.ª toma</span><input type="time" name="firstTime" value="${esc(v.firstTime || round5)}"></label>
+        </div>
+        <div class="fields">
+          <label class="field"><span>Duración (días)</span><input type="number" name="durDays" inputmode="numeric" min="1" max="3650" placeholder="Continuo" value="${durDays}"></label>
+          <label class="field"><span>Hasta (opcional)</span><input type="date" name="end" value="${esc(v.end)}"></label>
+        </div>
+        <div class="preview-box" id="medPreview"></div>
+        <label class="field"><span>Indicaciones</span><textarea name="notes" placeholder="Ej. en ayunas, con alimentos…">${esc(v.notes)}</textarea></label>
+        <label class="check"><input type="checkbox" name="active" ${v.active !== false ? 'checked' : ''}> Activo (recibir recordatorios)</label>`,
+      onOpen: f => {
+        bindTimes(f);
+        const draft = () => ({
+          id: m.id || 'draft', mode: f.mode.value, every: +f.every.value, firstTime: f.firstTime.value || '08:00',
+          times: readTimes(f, 'times'), days: $$('input[name="days"]:checked', f).map(i => +i.value),
+          start: f.start.value || today(), end: f.end.value, active: true,
+          form: f.form.value, qty: f.qty.value, strength: f.strength.value, unit: f.unit.value
+        });
+        const update = () => {
+          const P = PRESENTATIONS[f.form.value];
+          $('#qtyUnit').textContent = P ? (Number(f.qty.value || 1) <= 1 ? P.u1 : P.u2) : 'unidad(es)';
+          const d = draft();
+          const next = MS.nextDoses(d, new Date(Math.max(Date.now(), at(d.start).getTime())) , 6);
+          let total = '';
+          if (d.end && (d.mode === 'times' ? d.times.length && d.days.length : true)) {
+            const n = MS.nextDoses(d, at(d.start), 5000).length;
+            total = `<div class="small" style="margin-top:8px">Total del tratamiento: <b>${n} toma${n === 1 ? '' : 's'}</b> · termina el ${fmtDate(d.end, { day: 'numeric', month: 'long' })}</div>`;
+          }
+          const lbl = doseLabel(d);
+          $('#medPreview').innerHTML = `<div class="small muted" style="margin-bottom:6px">${lbl ? `Cada toma: <b style="color:var(--text)">${esc(lbl)}</b> · ` : ''}Próximas tomas:</div>
+            ${next.length ? `<div class="row" style="gap:6px">${next.map(x => `<span class="chip">${relDay(x.date)} ${x.time}</span>`).join('')}</div>` : '<div class="small muted">Sin tomas próximas con esta configuración.</div>'}${total}`;
+        };
+        f.addEventListener('click', e => {
+          const b = e.target.closest('[data-mode]');
+          if (b) {
+            f.mode.value = b.dataset.mode;
+            $$('[data-mode]', f).forEach(x => x.classList.toggle('active', x === b));
+            $$('[data-block]', f).forEach(x => { x.hidden = x.dataset.block !== b.dataset.mode; });
+            $('#startLbl').textContent = b.dataset.mode === 'interval' ? 'Fecha 1.ª toma' : 'Inicio';
+          }
+          setTimeout(update);
+        });
+        f.addEventListener('input', e => {
+          if (e.target.name === 'durDays' || (e.target.name === 'start' && f.durDays.value)) {
+            const n = parseInt(f.durDays.value, 10);
+            f.end.value = n > 0 && f.start.value ? addDays(f.start.value, n - 1) : '';
+          } else if (e.target.name === 'end') {
+            f.durDays.value = f.end.value && f.start.value && f.end.value >= f.start.value
+              ? Math.round((at(f.end.value) - at(f.start.value)) / 86400000) + 1 : '';
+          }
+          update();
+        });
+        f.addEventListener('change', update);
+        update();
+      },
       onSubmit: async f => {
         if (!f.reportValidity()) return false;
+        const modeV = f.mode.value;
         const times = readTimes(f, 'times');
         const dsel = $$('input[name="days"]:checked', f).map(i => +i.value);
-        if (!times.length) { toast('Agrega al menos un horario'); return false; }
-        if (!dsel.length) { toast('Selecciona al menos un día'); return false; }
-        if (f.end.value && f.start.value && f.end.value < f.start.value) { toast('La fecha de fin es anterior al inicio'); return false; }
-        await DB.put('meds', {
-          id: m.id || uid(), name: f.name.value.trim(), dose: f.dose.value.trim(), times, days: dsel,
+        if (modeV === 'times' && !times.length) { toast('Agrega al menos un horario'); return false; }
+        if (modeV === 'times' && !dsel.length) { toast('Selecciona al menos un día'); return false; }
+        if (modeV === 'interval' && !f.firstTime.value) { toast('Indica la hora de la primera toma'); return false; }
+        if (f.end.value && f.end.value < f.start.value) { toast('La fecha final es anterior al inicio'); return false; }
+        // Se conservan todos los campos existentes del medicamento (compatibilidad con datos ya guardados)
+        const med = Object.assign({}, m, {
+          id: m.id || uid(), name: f.name.value.trim(), form: f.form.value,
+          strength: f.strength.value ? +f.strength.value : null, unit: f.unit.value,
+          qty: f.qty.value ? +f.qty.value : null, mode: modeV, every: +f.every.value, firstTime: f.firstTime.value,
+          times: times.length ? times : (m.times || []), days: dsel.length ? dsel : (m.days || []),
           start: f.start.value, end: f.end.value, notes: f.notes.value.trim(), active: f.active.checked
         });
+        med.dose = doseLabel(Object.assign({}, med, { dose: m.dose || '' }));
+        await DB.put('meds', med);
         await load(); render(); toast('Medicamento guardado', 'check');
       }
     });
@@ -591,13 +746,21 @@
   }
   function medEvents(m) {
     const BY = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'];
+    const summary = `SUMMARY:${icsEsc('💊 ' + m.name + (doseLabel(m) ? ' — ' + doseLabel(m) : ''))}`;
+    if (MS.isInterval(m)) {
+      const s = at(m.start || today(), m.firstTime || '08:00'), e = new Date(s.getTime() + 600000);
+      let rule = `RRULE:FREQ=HOURLY;INTERVAL=${Number(m.every)}`;
+      if (m.end) rule += `;UNTIL=${m.end.replace(/-/g, '')}T235959`;
+      return [['BEGIN:VEVENT', `UID:${m.id}-int@medicsoft`, `DTSTAMP:${icsStamp()}`, `DTSTART:${icsLocal(s)}`, `DTEND:${icsLocal(e)}`,
+        rule, summary, `DESCRIPTION:${icsEsc(m.notes)}`, ...alarm('PT0M', 'Tomar ' + m.name), 'END:VEVENT']];
+    }
     const start = m.start && m.start > today() ? m.start : today();
     return (m.times || []).map(t => {
       const s = at(start, t), e = new Date(s.getTime() + 600000);
       let rule = m.days && m.days.length && m.days.length < 7 ? `RRULE:FREQ=WEEKLY;BYDAY=${m.days.map(d => BY[d]).join(',')}` : 'RRULE:FREQ=DAILY';
       if (m.end) rule += `;UNTIL=${m.end.replace(/-/g, '')}T235959`;
       return ['BEGIN:VEVENT', `UID:${m.id}-${t.replace(':', '')}@medicsoft`, `DTSTAMP:${icsStamp()}`, `DTSTART:${icsLocal(s)}`, `DTEND:${icsLocal(e)}`,
-        rule, `SUMMARY:${icsEsc('💊 ' + m.name + (m.dose ? ' — ' + m.dose : ''))}`, `DESCRIPTION:${icsEsc(m.notes)}`,
+        rule, summary, `DESCRIPTION:${icsEsc(m.notes)}`,
         ...alarm('PT0M', 'Tomar ' + m.name), 'END:VEVENT'];
     });
   }
@@ -652,11 +815,11 @@
           <label class="field"><span>Hasta</span><input type="date" data-rdate="to" value="${r.to}" min="${r.from}"></label>
         </div>
         <label class="check" style="margin-top:12px"><input type="checkbox" data-rmeds ${r.meds ? 'checked' : ''}> Incluir adherencia a medicamentos</label>
-        <div class="row" style="margin-top:16px">
-          <button class="btn" data-act="print" ${list.length ? '' : 'disabled'}>${icon('printer')} Imprimir / PDF</button>
-          <button class="btn outline" data-act="csv" ${list.length ? '' : 'disabled'}>${icon('download')} CSV (Excel)</button>
-          ${navigator.share ? `<button class="btn outline" data-act="share" ${list.length ? '' : 'disabled'}>${icon('upload')} Compartir</button>` : ''}
+        <div class="report-actions">
+          <button class="btn" data-act="pdf" ${list.length ? '' : 'disabled'}>${icon('file')} ${isMobile() ? 'Generar PDF' : 'Descargar PDF'}</button>
+          <button class="btn outline" data-act="csv" ${list.length ? '' : 'disabled'}>${icon('download')} Excel (CSV)</button>
         </div>
+        <div class="small muted" style="margin-top:8px">${isMobile() ? 'Se abrirá el menú para compartir: puedes guardarlo en Archivos, imprimirlo o enviarlo por WhatsApp o correo.' : 'PDF en tamaño carta, listo para imprimir o enviar a tu médico.'}</div>
       </div>
 
       <div id="report" class="stack-v">
@@ -690,7 +853,7 @@
         </div>
         ${ad && ad.per.length ? `<div class="card"><div class="card-head"><h3>${icon('pill')} Medicamentos en el periodo</h3></div>
           <div class="table-wrap"><table><thead><tr><th>Medicamento</th><th>Dosis</th><th>Horarios</th><th>Tomadas</th><th>Adherencia</th></tr></thead><tbody>
-          ${ad.per.map(p => `<tr><td>${esc(p.med.name)}</td><td>${esc(p.med.dose)}</td><td>${(p.med.times || []).join(', ')}</td><td class="num">${p.taken}/${p.scheduled}</td><td class="num">${Math.round(p.taken * 100 / p.scheduled)}%</td></tr>`).join('')}
+          ${ad.per.map(p => `<tr><td>${esc(p.med.name)}</td><td>${esc(doseLabel(p.med))}</td><td>${esc(schedLabel(p.med))}</td><td class="num">${p.taken}/${p.scheduled}</td><td class="num">${Math.round(p.taken * 100 / p.scheduled)}%</td></tr>`).join('')}
           </tbody></table></div></div>` : ''}
         <div class="card"><div class="card-head"><h3>${icon('list')} Detalle de tomas</h3></div>
           <div class="table-wrap"><table><thead><tr><th>Fecha</th><th>Hora</th><th>Sist.</th><th>Diast.</th><th>Pulso</th><th>Clasificación</th><th>Otros</th><th>Notas</th></tr></thead><tbody>
@@ -706,6 +869,7 @@
     </div>`;
   }
   ROUTES[4].after = () => {
+    if (window.ReportPDF) ReportPDF.load().catch(() => {});
     const el = $('[data-chart="report"]');
     if (el) drawBPChart(el, reportData().list, 280);
     $$('[data-rdate]').forEach(i => i.onchange = () => {
@@ -717,6 +881,64 @@
     const mc = $('[data-rmeds]');
     if (mc) mc.onchange = () => { state.report.meds = mc.checked; render(); };
   };
+
+  function ageFrom(birth) {
+    if (!birth) return '';
+    const b = at(birth), n = new Date();
+    let a = n.getFullYear() - b.getFullYear();
+    if (n.getMonth() < b.getMonth() || (n.getMonth() === b.getMonth() && n.getDate() < b.getDate())) a--;
+    return a >= 0 && a < 130 ? `${a} años` : '';
+  }
+
+  function pdfData() {
+    const r = state.report, s = state.settings;
+    const { list, bp, pul, cats, periods } = reportData();
+    const mm = (arr, k) => arr.length ? `${Math.min(...arr.map(v => v[k]))} - ${Math.max(...arr.map(v => v[k]))}` : '';
+    const ad = r.meds && state.meds.length ? adherence(r.from, r.to) : null;
+    const long = ds => fmtDate(ds, { day: 'numeric', month: 'long', year: 'numeric' });
+    return {
+      title: 'Reporte de presión arterial y frecuencia cardiaca',
+      patient: s.name, doctor: s.doctor, age: ageFrom(s.birth),
+      periodLabel: `${long(r.from)} al ${long(r.to)}`,
+      generated: new Date().toLocaleString('es', { dateStyle: 'long', timeStyle: 'short' }),
+      total: list.length, days: new Set(list.map(v => v.date)).size, bpCount: bp.length,
+      avgBP: bp.length ? `${avg(bp.map(v => v.sys))}/${avg(bp.map(v => v.dia))}` : '',
+      avgCat: bp.length ? bpCategory(avg(bp.map(v => v.sys)), avg(bp.map(v => v.dia))) : null,
+      avgPulse: pul.length ? avg(pul.map(v => v.pulse)) : null, pulseRange: mm(pul, 'pulse'),
+      sysRange: mm(bp, 'sys'), diaRange: mm(bp, 'dia'), cats,
+      catDefs: [['normal', 'Normal'], ['elev', 'Elevada'], ['h1', 'Hipertensión grado 1'], ['h2', 'Hipertensión grado 2'], ['crisis', 'Crisis hipertensiva'], ['low', 'Presión baja']].map(([id, label]) => ({ id, label })),
+      periods: periods.map(p => Object.assign({}, p, { label: p.label.replace('–', '-') })),
+      adherence: ad && ad.scheduled ? ad : null,
+      meds: ad ? ad.per.map(p => ({ name: p.med.name, dose: doseLabel(p.med),
+        schedule: schedLabel(p.med), taken: p.taken, scheduled: p.scheduled, pct: Math.round(p.taken * 100 / p.scheduled) })) : [],
+      list: list.map(v => ({
+        ts: +vitalTime(v), time: v.time, sys: v.sys, dia: v.dia, pulse: v.pulse, cat: bpCategory(v.sys, v.dia),
+        dateLabel: cap(fmtDate(v.date, { weekday: 'short' })).replace('.', '') + ' ' + fmtDate(v.date, { day: '2-digit', month: '2-digit', year: 'numeric' }),
+        other: [v.temp && v.temp + ' °C', v.spo2 && 'SpO2 ' + v.spo2 + '%', v.glucose && v.glucose + ' mg/dL', v.weight && v.weight + ' kg', v.arm, v.position].filter(Boolean).join(' · '),
+        notes: v.notes || ''
+      }))
+    };
+  }
+
+  const isMobile = () => matchMedia('(pointer: coarse)').matches || /iphone|ipad|android/i.test(navigator.userAgent);
+
+  // En el celular usa la hoja de compartir (guardar en Archivos, imprimir, WhatsApp…); en la computadora descarga
+  async function deliverFile(blob, name, title) {
+    const file = new File([blob], name, { type: blob.type });
+    if (isMobile() && navigator.canShare && navigator.canShare({ files: [file] })) {
+      try { await navigator.share({ files: [file], title }); return; }
+      catch (e) {
+        if (e.name === 'AbortError') return;
+        // iOS exige un toque reciente: se ofrece un botón para compartir
+        return new Promise(res => {
+          modal({ title: 'Archivo listo', body: `<p>Tu archivo <b>${esc(name)}</b> está listo.</p>`, submit: 'Compartir',
+            onSubmit: async () => { try { await navigator.share({ files: [file], title }); } catch (_) {} } });
+          $('#modal').addEventListener('close', res, { once: true });
+        });
+      }
+    }
+    download(name, blob);
+  }
 
   function reportCSV() {
     const { list } = reportData();
@@ -776,6 +998,7 @@
           <div class="stack-v" style="gap:12px">
             <label class="field"><span>Nombre (aparece en los reportes)</span><input data-set-text="name" value="${esc(s.name)}" placeholder="Tu nombre"></label>
             <label class="field"><span>Médico tratante</span><input data-set-text="doctor" value="${esc(s.doctor)}" placeholder="Opcional"></label>
+            <label class="field"><span>Fecha de nacimiento (para mostrar la edad en el reporte)</span><input type="date" data-set-text="birth" value="${esc(s.birth)}" max="${today()}"></label>
           </div>
         </div>
         <div class="card">
@@ -881,8 +1104,18 @@
     medday: el => { state.medDay = addDays(state.medDay, +el.dataset.v); render(); },
     dose: async el => {
       const key = el.dataset.key;
-      if (state.intakes.some(i => i.id === key)) await DB.del('intakes', key);
-      else await MS.markTaken(key, 'taken');
+      const prev = state.intakes.find(i => i.id === key);
+      if (prev) {
+        const [medId, ds, t] = key.split('|');
+        const med = state.meds.find(m => m.id === medId);
+        const what = prev.status === 'taken' ? 'tomada' : 'omitida';
+        const when = prev.at ? ` (registrada ${new Date(prev.at).toLocaleString('es', { dateStyle: 'medium', timeStyle: 'short' })})` : '';
+        if (!(await confirmDlg('Desmarcar toma',
+          `¿Quitar la marca de <b>${what}</b> de ${esc(med ? med.name : 'este medicamento')} ${['Hoy', 'Ayer', 'Mañana'].includes(relDay(ds)) ? 'de ' + relDay(ds).toLowerCase() : 'del ' + relDay(ds)} a las ${t}${when}?`,
+          'Sí, desmarcar'))) return;
+        await DB.del('intakes', key);
+        toast('Toma desmarcada');
+      } else await MS.markTaken(key, 'taken');
       await load(); render();
     },
     'dose-skip': async el => { await MS.markTaken(el.dataset.key, 'skipped'); await load(); render(); },
@@ -914,16 +1147,18 @@
     caltoday: () => { state.calSel = today(); state.calMonth = null; render(); },
 
     rpreset: el => { const [from, to] = reportPreset(el.dataset.v); Object.assign(state.report, { preset: el.dataset.v, from, to }); render(); },
-    print: () => window.print(),
-    csv: () => download(`presion-${state.report.from}_a_${state.report.to}.csv`, reportCSV(), 'text/csv;charset=utf-8'),
-    share: async () => {
-      const file = new File([reportCSV()], `presion-${state.report.from}_a_${state.report.to}.csv`, { type: 'text/csv' });
+    pdf: async el => {
+      const label = el.innerHTML;
+      el.disabled = true; el.innerHTML = 'Generando…';
       try {
-        if (navigator.canShare && navigator.canShare({ files: [file] })) await navigator.share({ files: [file], title: 'Reporte de presión arterial' });
-        else await navigator.share({ title: 'Reporte de presión arterial', text: reportText() });
-      } catch (_) { /* cancelado */ }
+        await ReportPDF.load();
+        const blob = ReportPDF.build(pdfData());
+        const nm = (state.settings.name || 'paciente').normalize('NFD').replace(/[^\w]+/g, '-').replace(/^-|-$/g, '');
+        await deliverFile(blob, `Reporte-presion_${nm}_${state.report.from}_a_${state.report.to}.pdf`, 'Reporte de presión arterial');
+      } catch (e) { console.error(e); toast(e.message || 'No se pudo generar el PDF'); }
+      finally { el.disabled = false; el.innerHTML = label; }
     },
-
+    csv: () => deliverFile(new Blob([reportCSV()], { type: 'text/csv;charset=utf-8' }), `presion-${state.report.from}_a_${state.report.to}.csv`, 'Registros de presión arterial'),
     'enable-notif': enableNotifications,
     'test-notif': async () => {
       const reg = await navigator.serviceWorker.ready;
@@ -951,11 +1186,6 @@
       await load(); render(); toast('Datos eliminados');
     }
   };
-
-  function reportText() {
-    const { bp, pul } = reportData();
-    return `Reporte de presión ${state.report.from} a ${state.report.to}: ${bp.length} tomas, promedio ${avg(bp.map(v => v.sys))}/${avg(bp.map(v => v.dia))} mmHg, pulso ${avg(pul.map(v => v.pulse))} lpm.`;
-  }
 
   document.addEventListener('click', e => {
     const el = e.target.closest('[data-act]');
