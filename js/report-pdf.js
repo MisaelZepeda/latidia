@@ -81,12 +81,17 @@
       ['Registros', `${R.total} tomas en ${R.days} días`]
     ];
     if (R.age) info.splice(1, 0, ['Edad', R.age]);
+    if (R.blood) info.push(['Tipo de sangre', R.blood]);
+    if (R.conditions) info.push(['Padecimientos', R.conditions]);
+    if (R.allergies) info.push(['Alergias', R.allergies]);
     const rows = Math.ceil(info.length / 2), boxH = 6 + rows * 9;
     color('setFillColor', C.box); doc.roundedRect(M, y, CW, boxH, 2, 2, 'F');
     info.forEach(([k, v], i) => {
       const cx = M + 5 + (i % 2) * (CW / 2), cy = y + 7 + Math.floor(i / 2) * 9;
       font(7, 'normal', C.muted); doc.text(L(k.toUpperCase()), cx, cy);
-      font(10, 'bold'); doc.text(L(v), cx, cy + 4.3, { maxWidth: CW / 2 - 8 });
+      font(10, 'bold', k === 'Alergias' ? [185, 28, 28] : C.text);
+      const lines = doc.splitTextToSize(L(v), CW / 2 - 8);
+      doc.text(lines.length > 1 ? lines[0].replace(/\s*\S*$/, '') + '...' : lines[0], cx, cy + 4.3);
     });
     y += boxH + 8;
 
@@ -263,5 +268,137 @@
     font(8, 'normal'); doc.text('Sistólica normal (90-120)', lx + 8, ly);
   }
 
-  g.ReportPDF = { load, build, ready };
+  // ---------- Ficha médica del paciente (una página, tamaño carta) ----------
+  function buildCard(P) {
+    const { jsPDF } = g.jspdf;
+    const doc = new jsPDF({ unit: 'mm', format: 'letter', compress: true });
+    const autoTable = (opts) => {
+      if (typeof doc.autoTable === 'function') doc.autoTable(opts);
+      else (g.jspdf_autotable.autoTable || g.jspdf_autotable.default)(doc, opts);
+      return doc.lastAutoTable.finalY;
+    };
+    const W = doc.internal.pageSize.getWidth(), H = doc.internal.pageSize.getHeight();
+    const M = 16, CW = W - 2 * M;
+    const RED = [185, 28, 28], RED_SOFT = [254, 236, 236];
+    doc.setProperties({ title: 'Ficha médica', subject: 'Ficha médica del paciente', author: L(P.name || 'Latidia'), creator: 'Latidia' });
+    const color = (fn, c) => doc[fn](c[0], c[1], c[2]);
+    const font = (size, style = 'normal', c = C.text) => { doc.setFont('helvetica', style); doc.setFontSize(size); color('setTextColor', c); };
+    const dash = v => (v == null || v === '' ? '-' : v);
+    let y;
+    const section = (title, x = M, w = CW) => {
+      font(10.5, 'bold', C.primary); doc.text(L(title), x, y);
+      color('setDrawColor', C.primary); doc.setLineWidth(0.35); doc.line(x, y + 1.6, x + w, y + 1.6);
+      y += 6.5;
+    };
+    const kv = (label, value, x, w, opts = {}) => {
+      font(7, 'normal', C.muted); doc.text(L(label.toUpperCase()), x, y);
+      font(opts.size || 10.5, 'bold', opts.color || C.text);
+      const lines = doc.splitTextToSize(L(dash(value)), w);
+      doc.text(lines.slice(0, 2), x, y + 4.6);
+      return 4.6 + lines.slice(0, 2).length * 4.6;
+    };
+
+    // Encabezado
+    color('setFillColor', C.primary); doc.rect(0, 0, W, 26, 'F');
+    doc.setFillColor(255, 255, 255); doc.roundedRect(M, 5.5, 15, 15, 3.5, 3.5, 'F');
+    color('setFillColor', C.primary);
+    doc.circle(M + 5.3, 11.5, 2.7, 'F'); doc.circle(M + 9.7, 11.5, 2.7, 'F');
+    doc.triangle(M + 2.7, 12.5, M + 12.3, 12.5, M + 7.5, 17.6, 'F');
+    font(16, 'bold', [255, 255, 255]); doc.text('Ficha médica', M + 19, 12.5);
+    font(9, 'normal', [219, 234, 254]); doc.text('Latidia · información del paciente', M + 19, 18.3);
+    font(8, 'normal', [219, 234, 254]); doc.text(L('Generada: ' + P.generated), W - M, 18.3, { align: 'right' });
+
+    // Nombre + tipo de sangre
+    y = 38;
+    font(20, 'bold'); doc.text(L(P.name || 'Sin nombre'), M, y, { maxWidth: CW - 45 });
+    font(10.5, 'normal', C.muted);
+    doc.text(L([P.age, P.sex, P.birth && 'Nació el ' + P.birth].filter(Boolean).join('  ·  ')), M, y + 7);
+    const bx = W - M - 36;
+    color('setDrawColor', RED); doc.setLineWidth(0.8); color('setFillColor', RED_SOFT);
+    doc.roundedRect(bx, 29, 36, 22, 3, 3, 'FD');
+    font(20, 'bold', RED); doc.text(L(P.blood || '-'), bx + 18, 41.5, { align: 'center' });
+    font(7, 'bold', RED); doc.text('TIPO DE SANGRE', bx + 18, 47.5, { align: 'center' });
+
+    // Alergias (destacadas)
+    y = 58;
+    const allergyTxt = P.allergies && P.allergies.length ? P.allergies.join(', ') : 'Sin alergias conocidas';
+    const aLines = doc.splitTextToSize(L(allergyTxt), CW - 36);
+    const aH = 8 + aLines.length * 5;
+    color('setFillColor', P.allergies && P.allergies.length ? RED_SOFT : C.box); doc.roundedRect(M, y, CW, aH, 2, 2, 'F');
+    color('setFillColor', P.allergies && P.allergies.length ? RED : C.muted); doc.rect(M, y, 1.4, aH, 'F');
+    font(8, 'bold', P.allergies && P.allergies.length ? RED : C.muted); doc.text('ALERGIAS', M + 5, y + 6.3);
+    font(11, 'bold', P.allergies && P.allergies.length ? RED : C.text); doc.text(aLines, M + 30, y + 6.3);
+    y += aH + 9;
+
+    // Identificación y medidas (dos columnas)
+    const colW = (CW - 10) / 2, x2 = M + colW + 10;
+    const top = y;
+    section('Identificación', M, colW);
+    let yy = y;
+    [['CURP', P.curp], ['Número de Seguridad Social', P.nss], ['Institución', P.institution], ['Clínica / UMF', P.clinic]].forEach(([k, v]) => {
+      y = yy; yy += kv(k, v, M, colW) + 3;
+    });
+    const leftEnd = yy;
+    y = top;
+    section('Medidas y signos', x2, colW);
+    yy = y;
+    [['Estatura', P.height], ['Último peso', P.weight], ['Índice de masa corporal', P.bmi], ['Última presión', P.lastBP]].forEach(([k, v]) => {
+      y = yy; yy += kv(k, v, x2, colW) + 3;
+    });
+    y = Math.max(leftEnd, yy) + 4;
+
+    // Padecimientos y notas
+    section('Padecimientos');
+    font(10.5, 'normal');
+    if (P.conditions && P.conditions.length) {
+      P.conditions.forEach(c => {
+        color('setFillColor', C.primary); doc.circle(M + 1.2, y - 1.2, 0.8, 'F');
+        const cl = doc.splitTextToSize(L(c), CW - 6);
+        doc.text(cl, M + 5, y); y += cl.length * 5;
+      });
+      y += 2;
+    } else { doc.text('Sin padecimientos registrados', M, y); y += 7; }
+    if (P.notes) {
+      font(8, 'bold', C.muted); doc.text('NOTAS', M, y + 2);
+      font(10, 'normal'); const n = doc.splitTextToSize(L(P.notes), CW - 16); doc.text(n, M + 16, y + 2); y += n.length * 5 + 2;
+    }
+    y += 5;
+
+    // Medicamentos actuales
+    section('Medicamentos actuales');
+    if (P.meds.length) {
+      y = autoTable({
+        startY: y, margin: { left: M, right: M, bottom: 20 },
+        head: [['Medicamento', 'Presentación / dosis', 'Esquema']],
+        body: P.meds.map(m => [L(m.name), L(m.dose), L(m.schedule)]),
+        theme: 'striped', styles: { font: 'helvetica', fontSize: 9, cellPadding: 2, textColor: C.text },
+        headStyles: { fillColor: C.primary, textColor: 255 }, alternateRowStyles: { fillColor: C.zebra }
+      }) + 9;
+    } else { font(10, 'normal', C.muted); doc.text('Sin medicamentos activos', M, y); y += 9; }
+
+    // Contactos
+    if (y > H - 50) { doc.addPage(); y = M + 6; }
+    const ctop = y;
+    section('Contacto de emergencia', M, colW);
+    yy = y; y = yy; yy += kv('Nombre', P.emName, M, colW) + 3;
+    y = yy; yy += kv('Parentesco', P.emRel, M, colW) + 3;
+    y = yy; yy += kv('Teléfono', P.emPhone, M, colW, { size: 12, color: C.primary }) + 3;
+    y = ctop;
+    section('Médico tratante', x2, colW);
+    yy = y; y = yy; yy += kv('Nombre', P.doctor, x2, colW) + 3;
+    y = yy; yy += kv('Teléfono', P.doctorPhone, x2, colW, { size: 12, color: C.primary }) + 3;
+
+    // Pie
+    const pages = doc.getNumberOfPages();
+    for (let i = 1; i <= pages; i++) {
+      doc.setPage(i);
+      color('setDrawColor', C.line); doc.setLineWidth(0.3); doc.line(M, H - 14, W - M, H - 14);
+      font(7, 'normal', C.muted);
+      doc.text('Información proporcionada por el paciente mediante Latidia. Contiene datos personales: compártela solo con personal de salud de confianza.', M, H - 9.5);
+      if (pages > 1) { font(8, 'bold', C.muted); doc.text(`Página ${i} de ${pages}`, W - M, H - 5.5, { align: 'right' }); }
+    }
+    return doc.output('blob');
+  }
+
+  g.ReportPDF = { load, build, buildCard, ready };
 })(window);

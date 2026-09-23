@@ -448,3 +448,57 @@ input[type="date"]::-webkit-calendar-picker-indicator { margin-left: auto; }
 .notif-section h3 { display: flex; align-items: center; gap: 8px; font-size: .95rem; margin-bottom: 6px; }
 .notif-section h3 .ic { color: var(--primary); width: 18px; height: 18px; }
 .notif-section + .notif-section { border-top: 1px solid var(--border); padding-top: 14px; }
+
+/* ============ Ficha médica ============ */
+.ficha-mini { display: flex; align-items: center; gap: 14px; text-decoration: none; color: inherit; }
+.ficha-mini:hover { border-color: var(--primary); }
+.ficha-avatar {
+  width: 48px; height: 48px; border-radius: 50%; flex: none; display: grid; place-items: center;
+  background: linear-gradient(135deg, var(--primary), var(--primary-2)); color: #fff; font-weight: 700; font-size: 1.05rem;
+}
+.ficha-avatar.lg { width: 64px; height: 64px; font-size: 1.4rem; border: 3px solid rgba(255,255,255,.5); background: rgba(255,255,255,.2); }
+.chip .ic { width: 14px; height: 14px; }
+.chip.danger { background: var(--danger-soft); color: var(--danger); }
+.chip.blood { background: color-mix(in srgb, #dc2626 12%, var(--surface)); color: #b91c1c; }
+.chip.lg { font-size: .88rem; padding: 6px 12px; background: var(--primary-soft); color: var(--primary); }
+
+.id-card { padding: 0; overflow: hidden; }
+.id-head {
+  display: flex; align-items: center; gap: 16px; padding: 20px;
+  background: linear-gradient(135deg, var(--primary), var(--primary-2)); color: #fff;
+}
+.id-head h2 { font-size: 1.35rem; color: #fff; }
+.id-label { font-size: .72rem; text-transform: uppercase; letter-spacing: .08em; opacity: .85; }
+.id-sub { font-size: .88rem; opacity: .92; margin-top: 2px; }
+.blood-badge {
+  flex: none; min-width: 72px; padding: 8px 10px; border-radius: 14px; background: #fff; color: #b91c1c;
+  display: flex; flex-direction: column; align-items: center; line-height: 1.1;
+}
+.blood-badge span { font-size: 1.6rem; font-weight: 800; }
+.blood-badge small { font-size: .66rem; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; }
+.id-body { padding: 16px 20px 18px; }
+.kv-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(200px, 100%), 1fr)); gap: 12px 20px; }
+.kv { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.kv > span { font-size: .75rem; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.kv > b { font-size: 1rem; overflow-wrap: anywhere; }
+
+.allergy-strip {
+  display: flex; gap: 12px; align-items: flex-start; padding: 14px 16px; border-radius: var(--radius);
+  background: var(--danger-soft); color: var(--danger); border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent);
+}
+.allergy-strip .ic { flex: none; margin-top: 2px; }
+.allergy-strip.none { background: var(--surface); color: var(--muted); border-color: var(--border); }
+.form-section {
+  font-size: .78rem; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--primary);
+  padding-top: 6px; border-top: 1px solid var(--border); margin-top: 4px;
+}
+.form-section:first-child { border-top: 0; padding-top: 0; margin-top: 0; }
+.id-head .item-body { min-width: 0; }
+.allergy-strip .chip { background: var(--surface); color: var(--danger); border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent); font-size: .85rem; }
+@media (max-width: 600px) {
+  .id-head { padding: 16px; gap: 12px; align-items: flex-start; }
+  .ficha-avatar.lg { width: 48px; height: 48px; font-size: 1.1rem; }
+  .id-head h2 { font-size: 1.15rem; }
+  .blood-badge { min-width: 58px; padding: 6px 8px; }
+  .blood-badge span { font-size: 1.3rem; }
+}

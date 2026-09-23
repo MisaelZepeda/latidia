@@ -79,7 +79,7 @@
   const state = {
     settings: {}, vitals: [], meds: [], intakes: [], appts: [],
     reg: null, installEvt: null,
-    vitalsRange: 30, medDay: today(),
+    vitalsRange: 30, medDay: today(), showIds: false,
     calMonth: null, calSel: today(),
     report: null
   };
@@ -179,7 +179,8 @@
     { id: 'medicamentos', label: 'Medicinas', title: 'Medicamentos', icon: 'pill', render: renderMeds, fab: () => medForm() },
     { id: 'agenda', label: 'Agenda', title: 'Agenda médica', icon: 'calendar', render: renderAgenda, fab: () => apptForm(null, state.calSel) },
     { id: 'reportes', label: 'Reportes', title: 'Reportes', icon: 'report', render: renderReports },
-    { id: 'ajustes', label: 'Ajustes', title: 'Ajustes', icon: 'settings', render: renderSettings }
+    { id: 'ajustes', label: 'Ajustes', title: 'Ajustes', icon: 'settings', render: renderSettings },
+    { id: 'ficha', label: 'Ficha', title: 'Mi ficha médica', icon: 'user', render: renderFicha, nav: false }
   ];
   function parseHash() {
     const h = location.hash.replace(/^#\/?/, '');
@@ -187,7 +188,7 @@
     return { route: ROUTES.find(r => r.id === path) || ROUTES[0], params: new URLSearchParams(qs || '') };
   }
   function buildNav() {
-    const links = ROUTES.map(r => `<a href="#/${r.id}" data-route="${r.id}">${icon(r.icon)}<span>${r.label}</span></a>`).join('');
+    const links = ROUTES.filter(r => r.nav !== false).map(r => `<a href="#/${r.id}" data-route="${r.id}">${icon(r.icon)}<span>${r.label}</span></a>`).join('');
     $('#nav').innerHTML = links;
     $('#bottomNav').innerHTML = links;
   }
@@ -242,6 +243,7 @@
     return `
     <div class="stack-v">
       <div><div class="muted">${cap(fmtLong(today()))}</div><h2 style="font-size:1.5rem">${greet}${s.name ? ', ' + esc(s.name.split(' ')[0]) : ''} 👋</h2></div>
+      ${fichaMini()}
       ${banners.join('')}
       <div class="grid cols-2">
         <div class="card hero">
@@ -900,7 +902,8 @@
     const long = ds => fmtDate(ds, { day: 'numeric', month: 'long', year: 'numeric' });
     return {
       title: 'Reporte de presión arterial y frecuencia cardiaca',
-      patient: s.name, doctor: s.doctor, age: ageFrom(s.birth),
+      patient: s.name, doctor: s.doctor, age: ageFrom(s.birth), blood: s.blood,
+      conditions: listOf(s.conditions).join(', '), allergies: listOf(s.allergies).join(', '),
       periodLabel: `${long(r.from)} al ${long(r.to)}`,
       generated: new Date().toLocaleString('es', { dateStyle: 'long', timeStyle: 'short' }),
       total: list.length, days: new Set(list.map(v => v.date)).size, bpCount: bp.length,
@@ -954,6 +957,238 @@
   }
 
   // ======================================================
+  //  FICHA MÉDICA
+  // ======================================================
+  const BLOOD_TYPES = ['O+', 'O-', 'A+', 'A-', 'B+', 'B-', 'AB+', 'AB-'];
+  const INSTITUTIONS = ['IMSS', 'ISSSTE', 'IMSS-Bienestar', 'Pemex', 'Sedena / Semar', 'Seguro privado', 'Ninguna', 'Otra'];
+  const CURP_RE = /^[A-Z][AEIOUX][A-Z]{2}\d{2}(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])[HMX][A-Z]{2}[B-DF-HJ-NP-TV-Z]{3}[A-Z\d]\d$/;
+  const listOf = v => Array.isArray(v) ? v : String(v || '').split(/[\n,;]+/).map(x => x.trim()).filter(Boolean);
+  const maskId = v => v ? '•'.repeat(Math.max(0, v.length - 4)) + v.slice(-4) : '';
+  const SEX = { M: 'Mujer', H: 'Hombre', X: 'No binario' };
+
+  // La CURP contiene la fecha de nacimiento y el sexo
+  function curpInfo(curp) {
+    if (!CURP_RE.test(curp)) return null;
+    const yy = +curp.slice(4, 6), mm = curp.slice(6, 8), dd = curp.slice(8, 10);
+    const year = (/\d/.test(curp[16]) ? 1900 : 2000) + yy;
+    return { birth: `${year}-${mm}-${dd}`, sex: curp[10] };
+  }
+
+  function bmiInfo(w, hCm) {
+    if (!w || !hCm) return null;
+    const v = w / Math.pow(hCm / 100, 2);
+    const label = v < 18.5 ? 'Bajo peso' : v < 25 ? 'Peso normal' : v < 30 ? 'Sobrepeso' : 'Obesidad';
+    const color = v < 18.5 ? 'var(--bp-low)' : v < 25 ? 'var(--bp-normal)' : v < 30 ? 'var(--bp-elev)' : 'var(--bp-h1)';
+    return { value: Math.round(v * 10) / 10, label, color };
+  }
+
+  function profile() {
+    const s = state.settings;
+    const lastW = state.vitals.find(v => v.weight);
+    const lastBP = state.vitals.find(v => v.sys && v.dia);
+    return {
+      s, age: ageFrom(s.birth), conditions: listOf(s.conditions), allergies: listOf(s.allergies),
+      weight: lastW ? lastW.weight : null, weightDate: lastW ? lastW.date : null,
+      bmi: bmiInfo(lastW && lastW.weight, s.height),
+      lastBP, bpCat: lastBP ? bpCategory(lastBP.sys, lastBP.dia) : null,
+      meds: state.meds.filter(m => m.active !== false && (!m.end || m.end >= today())),
+      filled: !!(s.name || s.birth || s.curp || s.blood || s.conditions || s.allergies)
+    };
+  }
+
+  const initials = n => (n || '?').trim().split(/\s+/).slice(0, 2).map(w => w[0]).join('').toUpperCase();
+
+  // Tarjeta compacta para Inicio
+  function fichaMini() {
+    const p = profile(), s = p.s;
+    if (!p.filled) {
+      return `<a href="#/ficha" class="banner" style="text-decoration:none">${icon('user')}<div class="item-body"><b>Completa tu ficha médica</b>
+        <div class="small muted">Edad, tipo de sangre, alergias, padecimientos, CURP, NSS y contacto de emergencia a la mano.</div></div>${icon('right')}</a>`;
+    }
+    return `<a href="#/ficha" class="card ficha-mini">
+      <div class="ficha-avatar">${esc(initials(s.name))}</div>
+      <div class="item-body">
+        <div class="item-title">${esc(s.name || 'Mi ficha médica')}</div>
+        <div class="item-sub">${[p.age, SEX[s.sex], s.institution && s.institution !== 'Ninguna' ? s.institution : ''].filter(Boolean).join(' · ') || 'Ver ficha'}</div>
+        <div class="row" style="gap:6px;margin-top:6px">
+          ${s.blood ? `<span class="chip blood">${icon('droplet')}${esc(s.blood)}</span>` : ''}
+          ${p.allergies.length ? `<span class="chip danger">${icon('alert')}Alergias: ${esc(p.allergies.slice(0, 2).join(', '))}${p.allergies.length > 2 ? '…' : ''}</span>` : ''}
+          ${p.conditions.slice(0, 2).map(c => `<span class="chip">${esc(c)}</span>`).join('')}
+          ${p.conditions.length > 2 ? `<span class="chip">+${p.conditions.length - 2}</span>` : ''}
+        </div>
+      </div>${icon('right', 'muted')}</a>`;
+  }
+
+  function renderFicha() {
+    const p = profile(), s = p.s;
+    if (!p.filled) {
+      return `<div class="card">${emptyState('user', 'Aún no has llenado tu ficha médica.<br>Tenla lista para tus consultas o una emergencia.',
+        `<button class="btn" style="margin-top:14px" data-act="edit-ficha">${icon('edit')} Llenar mi ficha</button>`)}</div>`;
+    }
+    const idRow = (label, val, key) => `<div class="kv"><span>${label}</span><b class="num">${val
+      ? (key ? `<span data-secret="${key}">${esc(state.showIds ? val : maskId(val))}</span>` : esc(val)) : '<span class="muted" style="font-weight:400">—</span>'}</b></div>`;
+    const birthTxt = s.birth ? fmtDate(s.birth, { day: 'numeric', month: 'long', year: 'numeric' }) : '';
+    return `
+    <div class="stack-v">
+      <div class="card id-card">
+        <div class="id-head">
+          <div class="ficha-avatar lg">${esc(initials(s.name))}</div>
+          <div class="item-body">
+            <div class="id-label">Ficha médica</div>
+            <h2>${esc(s.name || 'Sin nombre')}</h2>
+            <div class="id-sub">${[p.age, SEX[s.sex], birthTxt && 'Nació el ' + birthTxt].filter(Boolean).join(' · ')}</div>
+          </div>
+          <div class="blood-badge" title="Tipo de sangre"><span>${esc(s.blood || '—')}</span><small>Sangre</small></div>
+        </div>
+        <div class="id-body">
+          <div class="row between" style="margin-bottom:4px"><span class="small muted">Identificación</span>
+            ${s.curp || s.nss ? `<button class="btn ghost small" data-act="toggle-ids">${icon(state.showIds ? 'eyeOff' : 'eye')} ${state.showIds ? 'Ocultar' : 'Mostrar'}</button>` : ''}</div>
+          <div class="kv-grid">
+            ${idRow('CURP', s.curp, 'curp')}
+            ${idRow('Número de Seguridad Social', s.nss, 'nss')}
+            ${idRow('Institución', s.institution)}
+            ${idRow('Clínica / UMF', s.clinic)}
+          </div>
+        </div>
+      </div>
+
+      <div class="allergy-strip ${p.allergies.length ? '' : 'none'}">${icon('alert')}
+        <div><b>${p.allergies.length ? 'Alergias' : 'Sin alergias registradas'}</b>
+        ${p.allergies.length ? `<div class="row" style="gap:6px;margin-top:6px">${p.allergies.map(a => `<span class="chip danger">${esc(a)}</span>`).join('')}</div>` : ''}</div></div>
+
+      <div class="grid cols-2">
+        <div class="card"><div class="card-head"><h3>${icon('stethoscope')} Padecimientos</h3></div>
+          ${p.conditions.length ? `<div class="row" style="gap:8px">${p.conditions.map(c => `<span class="chip lg">${esc(c)}</span>`).join('')}</div>` : '<div class="small muted">Sin padecimientos registrados.</div>'}
+          ${s.fichaNotes ? `<div class="small" style="margin-top:12px"><b>Notas:</b> ${esc(s.fichaNotes)}</div>` : ''}</div>
+
+        <div class="card"><div class="card-head"><h3>${icon('scale')} Medidas y signos</h3></div>
+          <div class="kv-grid">
+            ${idRow('Estatura', s.height ? s.height + ' cm' : '')}
+            ${idRow('Último peso', p.weight ? `${p.weight} kg` : '')}
+            <div class="kv"><span>IMC</span><b>${p.bmi ? `${p.bmi.value} <span class="small" style="color:${p.bmi.color}">${p.bmi.label}</span>` : '<span class="muted" style="font-weight:400">—</span>'}</b></div>
+            <div class="kv"><span>Última presión</span><b>${p.lastBP ? `${p.lastBP.sys}/${p.lastBP.dia} <span class="small" style="color:${p.bpCat.color}">${p.bpCat.label}</span>` : '<span class="muted" style="font-weight:400">—</span>'}</b></div>
+          </div>
+          ${!s.height ? '<div class="small muted" style="margin-top:8px">Agrega tu estatura para calcular el IMC.</div>' : ''}</div>
+
+        <div class="card"><div class="card-head"><h3>${icon('pill')} Medicamentos actuales</h3><a href="#/medicamentos" class="small">Ver</a></div>
+          ${p.meds.length ? `<div class="list">${p.meds.map(m => `<div class="item"><div class="item-body"><div class="item-title">${esc(m.name)}</div>
+            <div class="item-sub">${esc([doseLabel(m), schedLabel(m)].filter(Boolean).join(' · '))}</div></div></div>`).join('')}</div>` : '<div class="small muted">Sin medicamentos activos.</div>'}</div>
+
+        <div class="card"><div class="card-head"><h3>${icon('user')} Contacto de emergencia</h3></div>
+          ${s.emName || s.emPhone ? `<div class="row" style="flex-wrap:nowrap">
+            <div class="item-body"><div class="item-title">${esc(s.emName || 'Contacto')}</div><div class="item-sub">${esc([s.emRel, s.emPhone].filter(Boolean).join(' · '))}</div></div>
+            ${s.emPhone ? `<a class="btn small" href="tel:${esc(s.emPhone.replace(/[^\d+]/g, ''))}">${icon('phone')} Llamar</a>` : ''}</div>`
+            : '<div class="small muted">Sin contacto de emergencia.</div>'}
+          <div style="border-top:1px solid var(--border);margin-top:14px;padding-top:12px">
+            <div class="small muted">Médico tratante</div>
+            <div class="row" style="flex-wrap:nowrap"><div class="item-body"><b>${esc(s.doctor || '—')}</b></div>
+            ${s.doctorPhone ? `<a class="btn outline small" href="tel:${esc(s.doctorPhone.replace(/[^\d+]/g, ''))}">${icon('phone')} Llamar</a>` : ''}</div>
+          </div></div>
+      </div>
+
+      <div class="report-actions" style="max-width:none">
+        <button class="btn" data-act="edit-ficha">${icon('edit')} Editar ficha</button>
+        <button class="btn outline" data-act="ficha-pdf">${icon('file')} ${isMobile() ? 'Compartir ficha (PDF)' : 'Descargar ficha (PDF)'}</button>
+      </div>
+      <p class="small muted" style="margin:0">${icon('lock', '').replace('class="ic ', 'style="width:14px;height:14px;vertical-align:-2px" class="ic ')} Tu ficha se guarda en tu cuenta y solo tú puedes verla. La CURP y el NSS se muestran ocultos en pantalla; en el PDF aparecen completos.</p>
+    </div>`;
+  }
+
+  function fichaForm() {
+    const s = state.settings;
+    const opt = (list, v) => `<option value="">—</option>` + list.map(o => `<option ${v === o ? 'selected' : ''}>${o}</option>`).join('');
+    modal({
+      title: 'Mi ficha médica',
+      body: `
+        <div class="form-section">Datos personales</div>
+        <label class="field"><span>Nombre completo</span><input name="name" required autocomplete="name" value="${esc(s.name)}"></label>
+        <label class="field"><span>CURP</span><input name="curp" maxlength="18" autocapitalize="characters" autocomplete="off" spellcheck="false" placeholder="18 caracteres" value="${esc(s.curp)}" style="text-transform:uppercase">
+          <small class="muted" id="curpHint">Al escribirla se completan la fecha de nacimiento y el sexo.</small></label>
+        <div class="fields">
+          <label class="field"><span>Fecha de nacimiento</span><input type="date" name="birth" max="${today()}" value="${esc(s.birth)}"></label>
+          <label class="field"><span>Sexo</span><select name="sex"><option value="">—</option>${Object.entries(SEX).map(([k, l]) => `<option value="${k}" ${s.sex === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+        </div>
+
+        <div class="form-section">Seguridad social</div>
+        <div class="fields">
+          <label class="field"><span>Institución</span><select name="institution">${opt(INSTITUTIONS, s.institution)}</select></label>
+          <label class="field"><span>NSS / afiliación</span><input name="nss" inputmode="numeric" maxlength="20" autocomplete="off" value="${esc(s.nss)}" placeholder="11 dígitos (IMSS)"></label>
+        </div>
+        <label class="field"><span>Clínica / UMF / hospital</span><input name="clinic" value="${esc(s.clinic)}" placeholder="Ej. UMF 20, consultorio 5"></label>
+
+        <div class="form-section">Salud</div>
+        <div class="fields">
+          <label class="field"><span>Tipo de sangre</span><select name="blood">${opt(BLOOD_TYPES, s.blood)}</select></label>
+          <label class="field"><span>Estatura (cm)</span><input type="number" name="height" inputmode="decimal" min="40" max="250" step="0.5" value="${esc(s.height)}" placeholder="170"></label>
+        </div>
+        <label class="field"><span>Padecimientos (separados por coma o renglón)</span><textarea name="conditions" placeholder="Ej. Hipertensión arterial, Diabetes tipo 2">${esc(listOf(s.conditions).join(', '))}</textarea></label>
+        <label class="field"><span>Alergias (separadas por coma o renglón)</span><textarea name="allergies" placeholder="Ej. Penicilina, Mariscos">${esc(listOf(s.allergies).join(', '))}</textarea></label>
+        <label class="field"><span>Notas importantes</span><textarea name="fichaNotes" placeholder="Ej. Marcapasos, cirugías previas, donador de órganos…">${esc(s.fichaNotes)}</textarea></label>
+
+        <div class="form-section">Contacto de emergencia</div>
+        <label class="field"><span>Nombre</span><input name="emName" autocomplete="off" value="${esc(s.emName)}"></label>
+        <div class="fields">
+          <label class="field"><span>Parentesco</span><input name="emRel" value="${esc(s.emRel)}" placeholder="Ej. Esposa, hijo"></label>
+          <label class="field"><span>Teléfono</span><input type="tel" name="emPhone" inputmode="tel" autocomplete="off" value="${esc(s.emPhone)}"></label>
+        </div>
+
+        <div class="form-section">Médico tratante</div>
+        <div class="fields">
+          <label class="field"><span>Nombre</span><input name="doctor" value="${esc(s.doctor)}"></label>
+          <label class="field"><span>Teléfono</span><input type="tel" name="doctorPhone" inputmode="tel" value="${esc(s.doctorPhone)}"></label>
+        </div>`,
+      onOpen: f => {
+        f.curp.addEventListener('input', () => {
+          const pos = f.curp.selectionStart;
+          f.curp.value = f.curp.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+          try { f.curp.setSelectionRange(pos, pos); } catch (_) {}
+          const info = curpInfo(f.curp.value), hint = $('#curpHint');
+          if (f.curp.value.length === 18 && !info) { hint.textContent = 'La CURP no parece válida; revísala.'; hint.style.color = 'var(--danger)'; return; }
+          hint.style.color = '';
+          if (info) {
+            if (!f.birth.value) f.birth.value = info.birth;
+            if (!f.sex.value && SEX[info.sex]) f.sex.value = info.sex;
+            hint.textContent = `CURP válida · ${fmtDate(info.birth, { day: 'numeric', month: 'long', year: 'numeric' })} · ${SEX[info.sex] || ''}`;
+          } else hint.textContent = 'Al escribirla se completan la fecha de nacimiento y el sexo.';
+        });
+        f.nss.addEventListener('input', () => { f.nss.value = f.nss.value.replace(/[^\d-]/g, ''); });
+      },
+      onSubmit: async f => {
+        if (!f.reportValidity()) return false;
+        const curp = f.curp.value.trim().toUpperCase();
+        if (curp && !CURP_RE.test(curp)) { toast('La CURP no es válida (18 caracteres)'); return false; }
+        const nss = f.nss.value.replace(/\D/g, '');
+        if (f.institution.value === 'IMSS' && nss && nss.length !== 11) { toast('El NSS del IMSS tiene 11 dígitos'); return false; }
+        Object.assign(state.settings, {
+          name: f.name.value.trim(), curp, birth: f.birth.value, sex: f.sex.value,
+          institution: f.institution.value, nss: f.nss.value.trim(), clinic: f.clinic.value.trim(),
+          blood: f.blood.value, height: f.height.value ? +f.height.value : null,
+          conditions: listOf(f.conditions.value), allergies: listOf(f.allergies.value), fichaNotes: f.fichaNotes.value.trim(),
+          emName: f.emName.value.trim(), emRel: f.emRel.value.trim(), emPhone: f.emPhone.value.trim(),
+          doctor: f.doctor.value.trim(), doctorPhone: f.doctorPhone.value.trim()
+        });
+        await saveSettings();
+        render(); toast('Ficha guardada', 'check');
+      }
+    });
+  }
+
+  function fichaPdfData() {
+    const p = profile(), s = p.s;
+    return {
+      name: s.name, age: p.age, sex: SEX[s.sex] || '', birth: s.birth ? fmtDate(s.birth, { day: 'numeric', month: 'long', year: 'numeric' }) : '',
+      blood: s.blood, curp: s.curp, nss: s.nss, institution: s.institution, clinic: s.clinic,
+      height: s.height ? s.height + ' cm' : '', weight: p.weight ? p.weight + ' kg' : '',
+      bmi: p.bmi ? `${p.bmi.value} (${p.bmi.label})` : '',
+      lastBP: p.lastBP ? `${p.lastBP.sys}/${p.lastBP.dia} mmHg · ${p.bpCat.label} (${fmtDate(p.lastBP.date, { day: 'numeric', month: 'short', year: 'numeric' })})` : '',
+      conditions: p.conditions, allergies: p.allergies, notes: s.fichaNotes,
+      meds: p.meds.map(m => ({ name: m.name, dose: doseLabel(m), schedule: schedLabel(m) })),
+      emName: s.emName, emRel: s.emRel, emPhone: s.emPhone, doctor: s.doctor, doctorPhone: s.doctorPhone,
+      generated: new Date().toLocaleString('es', { dateStyle: 'long', timeStyle: 'short' })
+    };
+  }
+
+  // ======================================================
   //  AJUSTES
   // ======================================================
   function notifStatus() {
@@ -996,12 +1231,10 @@
       <div class="stack-v">
         ${accountCard()}
         <div class="card">
-          <div class="card-head"><h3>${icon('user')} Perfil</h3></div>
-          <div class="stack-v" style="gap:12px">
-            <label class="field"><span>Nombre (aparece en los reportes)</span><input data-set-text="name" value="${esc(s.name)}" placeholder="Tu nombre"></label>
-            <label class="field"><span>Médico tratante</span><input data-set-text="doctor" value="${esc(s.doctor)}" placeholder="Opcional"></label>
-            <label class="field"><span>Fecha de nacimiento (para mostrar la edad en el reporte)</span><input type="date" data-set-text="birth" value="${esc(s.birth)}" max="${today()}"></label>
-          </div>
+          <div class="card-head"><h3>${icon('user')} Perfil y ficha médica</h3></div>
+          <p class="small muted" style="margin-top:0">Tu nombre, edad, tipo de sangre, padecimientos y alergias aparecen en los reportes.</p>
+          <div class="row"><a class="btn outline" href="#/ficha">${icon('user')} Ver mi ficha</a>
+            <button class="btn ghost" data-act="edit-ficha">${icon('edit')} Editar</button></div>
         </div>
         <div class="card">
           <div class="card-head"><h3>${icon('bell')} Notificaciones</h3><span class="chip" style="${ns.ok ? 'color:var(--ok)' : ''}">${ns.txt}</span></div>
@@ -1173,6 +1406,19 @@
       state.installEvt = null; render();
     },
     theme: el => setTheme(el.dataset.v),
+    'edit-ficha': () => fichaForm(),
+    'toggle-ids': () => { state.showIds = !state.showIds; render(); },
+    'ficha-pdf': async el => {
+      const label = el.innerHTML;
+      el.disabled = true; el.innerHTML = 'Generando…';
+      try {
+        await ReportPDF.load();
+        const blob = ReportPDF.buildCard(fichaPdfData());
+        const nm = (state.settings.name || 'paciente').normalize('NFD').replace(/[^\w]+/g, '-').replace(/^-|-$/g, '');
+        await deliverFile(blob, `Ficha-medica_${nm}.pdf`, 'Ficha médica');
+      } catch (e) { console.error(e); toast(e.message || 'No se pudo generar el PDF'); }
+      finally { el.disabled = false; el.innerHTML = label; }
+    },
     logout: async () => {
       if (!(await confirmDlg('Cerrar sesión', 'Tus datos seguirán guardados en tu cuenta. En este dispositivo se borrará la copia local y dejarás de recibir recordatorios hasta que vuelvas a iniciar sesión.', 'Cerrar sesión'))) return;
       await Cloud.signOut();
@@ -1224,7 +1470,7 @@
   $('#themeBtn').onclick = () => setTheme(isDark() ? 'light' : 'dark');
   $('#bellBtn').onclick = () => openNotifCenter();
   $('#installBtn').onclick = () => actions.install();
-  $('#accountBtn').onclick = () => { location.hash = '#/ajustes'; };
+  $('#accountBtn').onclick = () => { location.hash = '#/ficha'; };
 
   // ======================================================
   //  NOTIFICACIONES
