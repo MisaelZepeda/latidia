@@ -95,7 +95,8 @@ a { color: var(--primary); }
 .topbar {
   position: sticky; top: 0; z-index: 10; display: flex; align-items: center; justify-content: space-between;
   padding: 14px 28px; padding-top: max(14px, env(safe-area-inset-top));
-  background: color-mix(in srgb, var(--bg) 85%, transparent); backdrop-filter: blur(12px);
+  background: var(--bg); /* sólido: el desenfoque (backdrop-filter) se veía borroso en iPhone */
+  border-bottom: 1px solid transparent; transition: border-color .2s, box-shadow .2s;
 }
 .topbar-title { display: flex; align-items: center; gap: 10px; }
 .topbar-title .brand-logo { display: none; }
@@ -433,3 +434,17 @@ input[type="date"]::-webkit-calendar-picker-indicator { margin-left: auto; }
   .item-actions .icon-btn { width: 36px; }
   .times .t input { width: 110px; }
 }
+
+/* Barra superior: línea sutil al desplazarse */
+.topbar.scrolled { border-bottom-color: var(--border); box-shadow: 0 2px 10px rgba(15, 31, 35, .05); }
+
+/* Centro de notificaciones */
+#bellBtn { position: relative; }
+.badge {
+  position: absolute; top: 3px; right: 3px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 99px;
+  background: var(--danger); color: #fff; font-size: .68rem; font-weight: 700; line-height: 18px; text-align: center;
+  border: 2px solid var(--bg);
+}
+.notif-section h3 { display: flex; align-items: center; gap: 8px; font-size: .95rem; margin-bottom: 6px; }
+.notif-section h3 .ic { color: var(--primary); width: 18px; height: 18px; }
+.notif-section + .notif-section { border-top: 1px solid var(--border); padding-top: 14px; }

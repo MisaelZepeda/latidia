@@ -108,14 +108,15 @@
     setTimeout(() => el.remove(), 2800);
   }
 
-  function modal({ title, body, submit = 'Guardar', danger = false, onSubmit, onOpen }) {
+  function modal({ title, body, submit = 'Guardar', cancel = 'Cancelar', danger = false, onSubmit, onOpen }) {
     const dlg = $('#modal'), old = $('#modalForm');
     const form = old.cloneNode(false); // formulario nuevo: sin listeners de modales anteriores
     old.replaceWith(form);
+    delete form.dataset.panel;
     form.innerHTML = `
       <div class="modal-head"><h2>${title}</h2><button type="button" class="icon-btn" data-close aria-label="Cerrar">${icon('x')}</button></div>
       <div class="modal-body">${body}</div>
-      <div class="modal-foot"><button type="button" class="btn ghost" data-close>Cancelar</button>
+      <div class="modal-foot"><button type="button" class="btn ghost" data-close>${cancel}</button>
       <button type="submit" class="btn ${danger ? 'danger' : ''}">${submit}</button></div>`;
     form.onsubmit = async e => {
       e.preventDefault();
@@ -203,6 +204,7 @@
     if (route.fab) view.insertAdjacentHTML('beforeend', `<button class="fab" data-act="fab" aria-label="Agregar">${icon('plus')}</button>`);
     if (route.after) route.after();
     if (changed) window.scrollTo(0, 0);
+    refreshNotifCenter();
     if (params.get('nuevo') && route.fab) {
       history.replaceState(null, '', '#/' + route.id);
       route.fab();
@@ -1208,9 +1210,10 @@
   function updateHeaderButtons() {
     $('#themeBtn').innerHTML = icon(isDark() ? 'sun' : 'moon');
     const on = typeof Notification !== 'undefined' && Notification.permission === 'granted' && state.settings.notify !== false;
-    $('#bellBtn').innerHTML = icon('bell');
+    const pending = pendingDoses().length;
+    $('#bellBtn').innerHTML = icon('bell') + (pending ? `<span class="badge">${pending > 9 ? '9+' : pending}</span>` : '');
     $('#bellBtn').classList.toggle('on', on);
-    $('#bellBtn').title = on ? 'Notificaciones activas' : 'Activar notificaciones';
+    $('#bellBtn').title = pending ? `${pending} dosis pendiente${pending === 1 ? '' : 's'}` : 'Notificaciones';
     const ab = $('#accountBtn');
     ab.hidden = !Cloud.user;
     if (Cloud.user) ab.innerHTML = avatarHTML(Cloud.user);
@@ -1219,16 +1222,107 @@
     ib.innerHTML = icon('install') + ' Instalar app';
   }
   $('#themeBtn').onclick = () => setTheme(isDark() ? 'light' : 'dark');
-  $('#bellBtn').onclick = () => {
-    if (typeof Notification !== 'undefined' && Notification.permission === 'granted') location.hash = '#/ajustes';
-    else enableNotifications();
-  };
+  $('#bellBtn').onclick = () => openNotifCenter();
   $('#installBtn').onclick = () => actions.install();
   $('#accountBtn').onclick = () => { location.hash = '#/ajustes'; };
 
   // ======================================================
   //  NOTIFICACIONES
   // ======================================================
+  // Dosis de hoy cuya hora ya pasó y no se han marcado
+  function pendingDoses() {
+    const im = intakeMap(), now = new Date(), ds = today();
+    return dosesForDate(state.meds, ds).filter(d => !im.has(d.key) && at(ds, d.time) <= now);
+  }
+
+  // Próximos avisos en las siguientes 24 h
+  function upcomingReminders() {
+    const now = new Date(), limit = new Date(now.getTime() + 86400000), s = state.settings, out = [];
+    const im = intakeMap();
+    for (const ds of [today(), addDays(today(), 1)]) {
+      if (s.notifyMeds !== false) {
+        for (const d of dosesForDate(state.meds, ds)) {
+          const when = at(ds, d.time);
+          if (when > now && when <= limit && !im.has(d.key)) out.push({ when, ic: 'pill', title: d.med.name, sub: doseLabel(d.med) });
+        }
+      }
+      if (s.notifyBP !== false) {
+        for (const t of s.bpTimes || []) {
+          const when = at(ds, t);
+          if (when > now && when <= limit) out.push({ when, ic: 'heart', title: 'Tomar la presión', sub: 'Recordatorio diario' });
+        }
+      }
+    }
+    if (s.notifyAppts !== false) {
+      for (const a of state.appts) {
+        if (a.done) continue;
+        const when = at(a.date, a.time || '08:00');
+        if (when > now && when <= limit) out.push({ when, ic: (APPT_TYPES[a.type] || APPT_TYPES.otro).icon, title: a.title, sub: [(APPT_TYPES[a.type] || APPT_TYPES.otro).label, a.place].filter(Boolean).join(' · ') });
+      }
+    }
+    return out.sort((a, b) => a.when - b.when).slice(0, 8);
+  }
+
+  let notifLog = [];
+  function notifCenterHTML() {
+    const perm = typeof Notification === 'undefined' ? 'unsupported' : Notification.permission;
+    const pend = pendingDoses(), up = upcomingReminders();
+    const nowKey = today() + 'T' + timeKey(new Date());
+    const appts = state.appts.filter(a => !a.done && (a.date + 'T' + (a.time || '23:59')) >= nowKey).slice(0, 3);
+    const whenTxt = d => `${relDay(dateKey(d))} ${timeKey(d)}`;
+    const ago = iso => {
+      const m = Math.round((Date.now() - new Date(iso)) / 60000);
+      return m < 1 ? 'ahora' : m < 60 ? `hace ${m} min` : m < 1440 ? `hace ${Math.round(m / 60)} h` : new Date(iso).toLocaleDateString('es', { day: 'numeric', month: 'short' });
+    };
+    const logIc = { med: 'pill', bp: 'heart', appt: 'calendar' };
+    return `
+      ${perm !== 'granted' ? `<div class="banner ${perm === 'denied' ? 'warn' : ''}">${icon('bell')}<div class="item-body small">${
+        perm === 'denied' ? 'Las notificaciones están bloqueadas. Habilítalas en la configuración del navegador o del iPhone (Ajustes → Notificaciones → MedicSoft).'
+        : perm === 'unsupported' ? (isIOS() && !isStandalone() ? 'En iPhone instala primero la app en la pantalla de inicio para recibir notificaciones.' : 'Este navegador no admite notificaciones.')
+        : 'Activa las notificaciones para recibir tus recordatorios.'}</div>
+        ${perm === 'default' ? `<button type="button" class="btn small" data-act="enable-notif">Activar</button>` : ''}</div>` : ''}
+
+      <div class="notif-section"><h3>${icon('alert')} Pendientes de hoy ${pend.length ? `<span class="chip" style="color:var(--warn)">${pend.length}</span>` : ''}</h3>
+        ${pend.length ? `<div class="list">${pend.map(d => `<div class="item">
+          <div class="item-ic" style="background:color-mix(in srgb, var(--warn) 15%, transparent);color:var(--warn)">${icon('pill')}</div>
+          <div class="item-body"><div class="item-title">${esc(d.med.name)}</div><div class="item-sub">${d.time}${doseLabel(d.med) ? ' · ' + esc(doseLabel(d.med)) : ''}</div></div>
+          <div class="item-actions"><button type="button" class="icon-btn" data-act="dose-skip" data-key="${d.key}" title="Omitir" aria-label="Omitir">${icon('skip')}</button>
+          <button type="button" class="btn small" data-act="dose" data-key="${d.key}">${icon('check')} Tomada</button></div></div>`).join('')}</div>`
+          : `<div class="small muted">No tienes dosis pendientes. ✅</div>`}</div>
+
+      <div class="notif-section"><h3>${icon('clock')} Próximas 24 horas</h3>
+        ${up.length ? `<div class="list">${up.map(r => `<div class="item">
+          <div class="item-ic" style="background:var(--surface-2)">${icon(r.ic)}</div>
+          <div class="item-body"><div class="item-title">${esc(r.title)}</div><div class="item-sub">${esc(r.sub)}</div></div>
+          <span class="chip">${whenTxt(r.when)}</span></div>`).join('')}</div>`
+          : `<div class="small muted">Sin recordatorios en las próximas 24 horas.</div>`}</div>
+
+      ${appts.length ? `<div class="notif-section"><h3>${icon('calendar')} Próximas citas</h3><div class="list">${appts.map(a => {
+        const t = APPT_TYPES[a.type] || APPT_TYPES.otro;
+        return `<div class="item"><div class="item-ic" style="background:color-mix(in srgb, ${t.color} 15%, transparent);color:${t.color}">${icon(t.icon)}</div>
+          <div class="item-body"><div class="item-title">${esc(a.title)}</div><div class="item-sub">${relDay(a.date)}${a.time ? ' · ' + a.time : ''}${a.place ? ' · ' + esc(a.place) : ''}</div></div></div>`;
+      }).join('')}</div></div>` : ''}
+
+      <div class="notif-section"><h3>${icon('bell')} Avisos recibidos</h3>
+        ${notifLog.length ? `<div class="list">${notifLog.slice(0, 15).map(n => `<div class="item">
+          <div class="item-ic" style="background:var(--surface-2)">${icon(logIc[n.kind] || 'bell')}</div>
+          <div class="item-body"><div class="item-title">${esc(n.title.replace(/^\W+\s*/u, ''))}</div><div class="item-sub">${esc(n.body)}</div></div>
+          <span class="small muted" style="white-space:nowrap">${ago(n.at)}</span></div>`).join('')}</div>`
+          : `<div class="small muted">Aquí aparecerán los avisos que te envíe la app en este dispositivo.</div>`}</div>`;
+  }
+
+  async function openNotifCenter() {
+    notifLog = await DB.getKV('notiflog', []);
+    modal({
+      title: 'Notificaciones', body: notifCenterHTML(), submit: 'Configurar avisos', cancel: 'Cerrar',
+      onSubmit: () => { location.hash = '#/ajustes'; }
+    });
+    $('#modalForm').dataset.panel = 'notifs';
+  }
+  function refreshNotifCenter() {
+    const f = $('#modalForm');
+    if ($('#modal').open && f.dataset.panel === 'notifs') $('.modal-body', f).innerHTML = notifCenterHTML();
+  }
   async function enableNotifications() {
     if (typeof Notification === 'undefined' || !('serviceWorker' in navigator)) {
       toast(isIOS() ? 'En iPhone, instala primero la app en la pantalla de inicio' : 'Este navegador no soporta notificaciones');
@@ -1360,7 +1454,9 @@
   let started = false, pendingRender = false;
   function refreshSoon() {
     if (!started) return;
-    load().then(() => { if ($('#modal').open) pendingRender = true; else render(); });
+    load().then(() => {
+      if ($('#modal').open && $('#modalForm').dataset.panel !== 'notifs') pendingRender = true; else render();
+    });
   }
   $('#modal').addEventListener('close', () => { if (pendingRender) { pendingRender = false; render(); } });
 
@@ -1397,6 +1493,7 @@
   window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); state.installEvt = e; if (started) render(); });
   window.addEventListener('appinstalled', () => { state.installEvt = null; toast('¡App instalada!', 'check'); if (started) render(); });
   window.addEventListener('hashchange', () => { if (started) render(); });
+  window.addEventListener('scroll', () => $('.topbar').classList.toggle('scrolled', scrollY > 4), { passive: true });
   let rz, lastW = innerWidth;
   window.addEventListener('resize', () => {
     clearTimeout(rz);

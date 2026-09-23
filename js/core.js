@@ -241,7 +241,14 @@
         renotify: true
       });
     }
-    if (due.length) await markSent(due.map(n => n.tag));
+    if (due.length) {
+      await markSent(due.map(n => n.tag));
+      // Historial local para el centro de notificaciones (últimos 50)
+      const log = await DB.getKV('notiflog', []);
+      const nowIso = new Date().toISOString();
+      for (const n of due) log.unshift({ title: n.title, body: n.body, kind: n.data && n.data.kind, at: nowIso });
+      await DB.setKV('notiflog', log.slice(0, 50));
+    }
     return due.length;
   }
 

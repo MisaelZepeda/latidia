@@ -1,7 +1,7 @@
 /* MedicSoft — service worker: caché offline + notificaciones */
 importScripts('js/core.js');
 
-const CACHE = 'medicsoft-v3';
+const CACHE = 'medicsoft-v4';
 // Librerías externas versionadas (no cambian): caché primero
 const CDN = ['https://www.gstatic.com/firebasejs/', 'https://cdn.jsdelivr.net/npm/'];
 const ASSETS = [
