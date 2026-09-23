@@ -738,6 +738,26 @@
     if (Notification.permission === 'denied') return { txt: 'Bloqueadas', ok: false, denied: true };
     return { txt: 'Sin activar', ok: false };
   }
+  function accountCard() {
+    if (!Cloud.configured) {
+      return `<div class="card"><div class="card-head"><h3>${icon('cloud')} Cuenta</h3><span class="chip">Modo local</span></div>
+        <p class="small muted" style="margin:0">La sincronización con Firebase no está configurada. Los datos se guardan solo en este dispositivo. Para activar el inicio de sesión, completa <code>js/firebase-config.js</code> (ver README).</p></div>`;
+    }
+    const u = Cloud.user;
+    if (!u) return '';
+    return `<div class="card"><div class="card-head"><h3>${icon('cloud')} Mi cuenta</h3>
+        <span class="chip"><span class="sync-dot ${Cloud.online ? '' : 'off'}"></span>${Cloud.online ? 'Sincronizado' : 'Sin conexión'}</span></div>
+      <div class="row" style="flex-wrap:nowrap">
+        <div class="avatar-btn icon-btn" style="width:48px;height:48px;font-size:1.2rem;cursor:default">${avatarHTML(u)}</div>
+        <div class="item-body"><div class="item-title">${esc(u.displayName || state.settings.name || 'Mi cuenta')}</div><div class="item-sub" style="overflow:hidden;text-overflow:ellipsis">${esc(u.email || '')}</div></div>
+      </div>
+      ${Cloud.online ? '' : '<p class="small muted">Puedes seguir usando la app; los cambios se subirán al recuperar la conexión.</p>'}
+      <button class="btn outline block" style="margin-top:14px" data-act="logout">${icon('logout')} Cerrar sesión</button></div>`;
+  }
+  const avatarHTML = u => u.photoURL
+    ? `<img src="${esc(u.photoURL)}" alt="" referrerpolicy="no-referrer">`
+    : esc((u.displayName || state.settings.name || u.email || '?').trim().charAt(0).toUpperCase());
+
   const isStandalone = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
   const isIOS = () => /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
@@ -750,6 +770,7 @@
     return `
     <div class="grid cols-2" style="align-items:start">
       <div class="stack-v">
+        ${accountCard()}
         <div class="card">
           <div class="card-head"><h3>${icon('user')} Perfil</h3></div>
           <div class="stack-v" style="gap:12px">
@@ -784,7 +805,7 @@
         </div>
         <div class="card">
           <div class="card-head"><h3>${icon('file')} Datos y respaldo</h3></div>
-          <p class="small muted" style="margin-top:0">Tus datos se guardan solo en este dispositivo. Haz respaldos periódicos para no perderlos o para pasarlos a otro equipo.</p>
+          <p class="small muted" style="margin-top:0">${Cloud.user ? 'Tus datos se guardan en tu cuenta y se sincronizan en todos tus dispositivos. También puedes descargar una copia en archivo.' : 'Tus datos se guardan solo en este dispositivo. Haz respaldos periódicos para no perderlos o para pasarlos a otro equipo.'}</p>
           <div class="row">
             <button class="btn outline" data-act="backup">${icon('download')} Exportar respaldo</button>
             <label class="btn outline">${icon('upload')} Importar<input type="file" accept="application/json,.json" id="importFile" hidden></label>
@@ -915,13 +936,17 @@
       state.installEvt = null; render();
     },
     theme: el => setTheme(el.dataset.v),
+    logout: async () => {
+      if (!(await confirmDlg('Cerrar sesión', 'Tus datos seguirán guardados en tu cuenta. En este dispositivo se borrará la copia local y dejarás de recibir recordatorios hasta que vuelvas a iniciar sesión.', 'Cerrar sesión'))) return;
+      await Cloud.signOut();
+    },
     backup: async () => download(`respaldo-medicsoft-${today()}.json`, JSON.stringify(await DB.exportAll(), null, 1), 'application/json'),
     demo: async () => {
       if (!(await confirmDlg('Datos de ejemplo', 'Se agregarán 30 días de lecturas, 2 medicamentos y 2 citas de ejemplo a tus datos.', 'Agregar'))) return;
       await loadDemo(); await load(); render(); toast('Datos de ejemplo cargados', 'check');
     },
     wipe: async () => {
-      if (!(await confirmDlg('Borrar todo', 'Se eliminarán <b>todos</b> tus registros, medicamentos, citas y ajustes de este dispositivo. Esta acción no se puede deshacer.', 'Borrar todo'))) return;
+      if (!(await confirmDlg('Borrar todo', `Se eliminarán <b>todos</b> tus registros, medicamentos, citas y ajustes ${Cloud.user ? 'de tu cuenta y de <b>todos tus dispositivos</b>' : 'de este dispositivo'}. Esta acción no se puede deshacer.`, 'Borrar todo'))) return;
       for (const s of ['vitals', 'meds', 'intakes', 'appts', 'kv']) await DB.clear(s);
       await load(); render(); toast('Datos eliminados');
     }
@@ -956,6 +981,9 @@
     $('#bellBtn').innerHTML = icon('bell');
     $('#bellBtn').classList.toggle('on', on);
     $('#bellBtn').title = on ? 'Notificaciones activas' : 'Activar notificaciones';
+    const ab = $('#accountBtn');
+    ab.hidden = !Cloud.user;
+    if (Cloud.user) ab.innerHTML = avatarHTML(Cloud.user);
     const ib = $('#installBtn');
     ib.hidden = !state.installEvt;
     ib.innerHTML = icon('install') + ' Instalar app';
@@ -966,6 +994,7 @@
     else enableNotifications();
   };
   $('#installBtn').onclick = () => actions.install();
+  $('#accountBtn').onclick = () => { location.hash = '#/ajustes'; };
 
   // ======================================================
   //  NOTIFICACIONES
@@ -1003,44 +1032,174 @@
   }
 
   // ======================================================
+  //  LOGIN
+  // ======================================================
+  const LOGO = $('.brand-logo').innerHTML;
+  const GOOGLE = '<svg viewBox="0 0 48 48" aria-hidden="true"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.4-.4-3.5z"/><path fill="#FF3D00" d="m6.3 14.7 6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-8l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.4-.4-3.5z"/></svg>';
+  let authMode = 'login', pendingName = '';
+
+  function showScreen(which) {
+    $('#auth').hidden = which === 'app';
+    $('#app').hidden = which !== 'app';
+    $('#bottomNav').hidden = which !== 'app';
+  }
+
+  function renderAuth(mode) {
+    authMode = mode || authMode;
+    const m = authMode;
+    $('#auth').innerHTML = `
+      <div class="card auth-card">
+        <div class="auth-brand"><span class="brand-logo">${LOGO}</span><h1>MedicSoft</h1>
+          <div class="muted small">Tu presión, medicamentos y citas médicas, sincronizados en todos tus dispositivos.</div></div>
+        ${m === 'reset'
+          ? `<h2 style="margin-bottom:6px">Recuperar contraseña</h2><p class="small muted" style="margin-top:0">Te enviaremos un enlace a tu correo para crear una nueva contraseña.</p>`
+          : `<div class="seg" style="margin-bottom:16px"><button type="button" data-mode="login" class="${m === 'login' ? 'active' : ''}">Iniciar sesión</button>
+             <button type="button" data-mode="signup" class="${m === 'signup' ? 'active' : ''}">Crear cuenta</button></div>`}
+        <form id="authForm" novalidate>
+          ${m === 'signup' ? `<label class="field"><span>Nombre</span><input name="name" autocomplete="name" required placeholder="Tu nombre"></label>` : ''}
+          <label class="field"><span>Correo electrónico</span><input name="email" type="email" autocomplete="email" inputmode="email" required placeholder="tucorreo@ejemplo.com"></label>
+          ${m !== 'reset' ? `<label class="field"><span>Contraseña</span><div class="pw"><input name="pass" type="password" required minlength="6"
+            autocomplete="${m === 'signup' ? 'new-password' : 'current-password'}" placeholder="${m === 'signup' ? 'Mínimo 6 caracteres' : '••••••••'}">
+            <button type="button" class="icon-btn" data-pw aria-label="Mostrar contraseña">${icon('eye')}</button></div></label>` : ''}
+          <div class="auth-error" id="authError" role="alert"></div>
+          <button class="btn block" type="submit">${m === 'login' ? 'Entrar' : m === 'signup' ? 'Crear cuenta' : 'Enviar enlace'}</button>
+          ${m === 'login' ? `<button type="button" class="link-btn" data-mode="reset">¿Olvidaste tu contraseña?</button>` : ''}
+          ${m === 'reset' ? `<button type="button" class="link-btn" data-mode="login">← Volver a iniciar sesión</button>` : ''}
+        </form>
+        ${m !== 'reset' ? `<div class="divider" style="margin:18px 0">o</div>
+          <button type="button" class="btn block btn-google" data-google>${GOOGLE} Continuar con Google</button>` : ''}
+        <p class="small muted" style="text-align:center;margin:18px 0 0">🔒 Solo tú puedes ver tus datos de salud.</p>
+      </div>`;
+    const root = $('#auth'), form = $('#authForm'), err = $('#authError');
+    const submitBtn = form.querySelector('[type=submit]'), submitLabel = submitBtn.innerHTML;
+    const busy = on => {
+      $$('button', root).forEach(b => { b.disabled = on; });
+      submitBtn.innerHTML = on ? 'Un momento…' : submitLabel;
+    };
+    root.onclick = e => {
+      const mb = e.target.closest('[data-mode]');
+      if (mb) { const email = form.email.value; renderAuth(mb.dataset.mode); $('#authForm').email.value = email; return; }
+      const pw = e.target.closest('[data-pw]');
+      if (pw) {
+        const i = form.pass;
+        i.type = i.type === 'password' ? 'text' : 'password';
+        pw.innerHTML = icon(i.type === 'password' ? 'eye' : 'eyeOff');
+        return;
+      }
+      if (e.target.closest('[data-google]')) {
+        err.textContent = '';
+        busy(true);
+        Cloud.signInGoogle().catch(x => { err.textContent = x.message; }).finally(() => busy(false));
+      }
+    };
+    form.onsubmit = async e => {
+      e.preventDefault();
+      err.textContent = '';
+      if (!form.reportValidity()) return;
+      busy(true);
+      try {
+        const email = form.email.value.trim();
+        if (m === 'login') await Cloud.signIn(email, form.pass.value);
+        else if (m === 'signup') { pendingName = form.name.value.trim(); await Cloud.signUp(pendingName, email, form.pass.value); }
+        else {
+          await Cloud.resetPassword(email);
+          renderAuth('login');
+          $('#authForm').email.value = email;
+          toast('Te enviamos un correo para restablecer tu contraseña', 'mail');
+          return;
+        }
+      } catch (x) { err.textContent = x.message; }
+      busy(false);
+    };
+    showScreen('auth');
+    setTimeout(() => (form.name || form.email).focus(), 50);
+  }
+
+  function renderCloudError() {
+    $('#auth').innerHTML = `<div class="card auth-card" style="text-align:center">
+      <div class="auth-brand"><span class="brand-logo">${LOGO}</span><h1>MedicSoft</h1></div>
+      <p><b>No se pudo conectar</b></p>
+      <p class="muted small">Necesitas conexión a internet la primera vez que abres la app para iniciar sesión.</p>
+      <button class="btn block" onclick="location.reload()">Reintentar</button></div>`;
+    showScreen('auth');
+  }
+
+  // ======================================================
   //  ARRANQUE
   // ======================================================
-  window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); state.installEvt = e; render(); });
-  window.addEventListener('appinstalled', () => { state.installEvt = null; toast('¡App instalada!', 'check'); render(); });
-  window.addEventListener('hashchange', render);
+  let started = false, pendingRender = false;
+  function refreshSoon() {
+    if (!started) return;
+    load().then(() => { if ($('#modal').open) pendingRender = true; else render(); });
+  }
+  $('#modal').addEventListener('close', () => { if (pendingRender) { pendingRender = false; render(); } });
+
+  async function startApp() {
+    showScreen('app');
+    await load();
+    const nm = pendingName || (Cloud.user && Cloud.user.displayName);
+    if (nm && !state.settings.name) { state.settings.name = nm; await saveSettings(); }
+    pendingName = '';
+    render();
+    checkReminders();
+    if (!started) {
+      started = true;
+      setInterval(checkReminders, 30000);
+      // Refresca la vista de inicio cada minuto (estados "pendiente", etc.)
+      setInterval(() => { if (currentRoute === 'inicio' && !$('#modal').open && document.visibilityState === 'visible') render(); }, 60000);
+    }
+  }
+
+  window.addEventListener('cloud-data', refreshSoon);
+  window.addEventListener('sync-status', () => {
+    if (!started) return;
+    updateHeaderButtons();
+    if (currentRoute === 'ajustes' && !$('#modal').open) render();
+  });
+  window.addEventListener('legacy-uploaded', () => toast('Los datos de este dispositivo se subieron a tu cuenta', 'cloud'));
+  window.addEventListener('auth-changed', e => {
+    if (e.detail) { startApp(); return; }
+    if ($('#modal').open) $('#modal').close();
+    Object.assign(state, { vitals: [], meds: [], intakes: [], appts: [] });
+    renderAuth('login');
+  });
+
+  window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); state.installEvt = e; if (started) render(); });
+  window.addEventListener('appinstalled', () => { state.installEvt = null; toast('¡App instalada!', 'check'); if (started) render(); });
+  window.addEventListener('hashchange', () => { if (started) render(); });
   let rz, lastW = innerWidth;
   window.addEventListener('resize', () => {
     clearTimeout(rz);
     rz = setTimeout(() => { // solo cambios de ancho (evita re-render al abrir el teclado en móvil)
-      if (innerWidth !== lastW && $('[data-chart]') && !$('#modal').open) render();
+      if (started && innerWidth !== lastW && $('[data-chart]') && !$('#modal').open) render();
       lastW = innerWidth;
     }, 200);
   });
   matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => updateHeaderButtons());
-  document.addEventListener('visibilitychange', async () => {
-    if (document.visibilityState === 'visible') {
-      await load();
-      if (!$('#modal').open) render();
-      checkReminders();
-    }
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && started) { refreshSoon(); checkReminders(); }
   });
 
   (async function init() {
     buildNav();
-    await load();
-    render();
+    const splash = document.createElement('div');
+    splash.className = 'splash';
+    splash.innerHTML = `<span class="brand-logo">${LOGO}</span>`;
+    document.body.appendChild(splash);
     if ('serviceWorker' in navigator) {
-      try {
-        state.reg = await navigator.serviceWorker.register('sw.js');
-        navigator.serviceWorker.addEventListener('message', async e => {
-          if (e.data && e.data.type === 'data-changed') { await load(); if (!$('#modal').open) render(); }
+      navigator.serviceWorker.register('sw.js').then(reg => {
+        state.reg = reg;
+        navigator.serviceWorker.addEventListener('message', e => {
+          if (e.data && e.data.type === 'data-changed') { if (Cloud.flushOutbox) Cloud.flushOutbox(); refreshSoon(); }
         });
         if (typeof Notification !== 'undefined' && Notification.permission === 'granted') registerPeriodicSync();
-      } catch (e) { console.warn('SW no registrado', e); }
+        checkReminders();
+      }).catch(e => console.warn('SW no registrado', e));
     }
-    checkReminders();
-    setInterval(checkReminders, 30000);
-    // Refresca la vista de inicio cada minuto (estados "pendiente", etc.)
-    setInterval(() => { if (currentRoute === 'inicio' && !$('#modal').open && document.visibilityState === 'visible') render(); }, 60000);
+    await Cloud.ready;
+    splash.remove();
+    if (Cloud.configured && Cloud.failed) renderCloudError();
+    else if (Cloud.configured && !Cloud.user) renderAuth('login');
+    else await startApp();
   })();
 })();

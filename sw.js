@@ -1,13 +1,16 @@
 /* MedicSoft — service worker: caché offline + notificaciones */
 importScripts('js/core.js');
 
-const CACHE = 'medicsoft-v1';
+const CACHE = 'medicsoft-v2';
+const FIREBASE_CDN = 'https://www.gstatic.com/firebasejs/';
 const ASSETS = [
   './',
   'index.html',
   'manifest.webmanifest',
   'css/styles.css',
   'js/core.js',
+  'js/firebase-config.js',
+  'js/cloud.js',
   'js/icons.js',
   'js/chart.js',
   'js/app.js',
@@ -30,25 +33,25 @@ self.addEventListener('activate', e => {
   );
 });
 
-// Red primero para HTML (para recibir actualizaciones), caché primero para lo demás
 self.addEventListener('fetch', e => {
   const req = e.request;
-  if (req.method !== 'GET' || new URL(req.url).origin !== location.origin) return;
-  if (req.mode === 'navigate') {
-    e.respondWith(
-      fetch(req).then(res => {
-        const copy = res.clone();
-        caches.open(CACHE).then(c => c.put('index.html', copy));
-        return res;
-      }).catch(() => caches.match('index.html'))
-    );
-    return;
-  }
-  e.respondWith(
-    caches.match(req).then(hit => hit || fetch(req).then(res => {
+  if (req.method !== 'GET') return;
+  // SDK de Firebase (versionado, no cambia): caché primero para que la app abra sin conexión
+  if (req.url.startsWith(FIREBASE_CDN)) {
+    e.respondWith(caches.match(req).then(hit => hit || fetch(req).then(res => {
       if (res.ok) { const copy = res.clone(); caches.open(CACHE).then(c => c.put(req, copy)); }
       return res;
-    }))
+    })));
+    return;
+  }
+  if (new URL(req.url).origin !== location.origin) return;
+  // Archivos propios: red primero (para recibir cambios al publicar), caché si no hay conexión
+  const key = req.mode === 'navigate' ? 'index.html' : req;
+  e.respondWith(
+    fetch(req).then(res => {
+      if (res.ok) { const copy = res.clone(); caches.open(CACHE).then(c => c.put(key, copy)); }
+      return res;
+    }).catch(() => caches.match(key, { ignoreSearch: true }))
   );
 });
 
@@ -78,6 +81,10 @@ self.addEventListener('notificationclick', e => {
   e.waitUntil((async () => {
     if (e.action === 'taken' && data.key) {
       await MS.markTaken(data.key, 'taken');
+      // La página sube este cambio a Firebase la próxima vez que esté abierta
+      const box = await MS.DB.getKV('outbox', []);
+      box.push({ store: 'intakes', id: data.key });
+      await MS.DB.setKV('outbox', box);
       await broadcast({ type: 'data-changed' });
       return;
     }

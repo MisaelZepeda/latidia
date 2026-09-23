@@ -2,7 +2,7 @@
 
 App web progresiva (PWA) para registrar **presión arterial, pulso y otros signos vitales**, controlar la **toma de medicamentos**, llevar un **calendario de citas médicas y exámenes**, generar **reportes por rango de fechas** (PDF / CSV) y recibir **notificaciones** en el celular y la computadora.
 
-Sin servidores ni dependencias: HTML + CSS + JavaScript puro, lista para GitHub Pages.
+HTML + CSS + JavaScript puro, alojada en GitHub Pages, con **inicio de sesión y sincronización en la nube con Firebase** (tus datos en todos tus dispositivos).
 
 ## Funciones
 
@@ -13,7 +13,24 @@ Sin servidores ni dependencias: HTML + CSS + JavaScript puro, lista para GitHub 
 | **Medicinas** | Horarios y días por medicamento, marcar dosis tomada/omitida, adherencia, exportación de alarmas al calendario del teléfono (.ics) |
 | **Agenda** | Calendario mensual de consultas, exámenes y otros eventos, con recordatorio configurable y aviso un día antes |
 | **Reportes** | Rango por fechas o atajos (7/30/90 días, este mes, mes anterior): promedios, mín–máx, clasificación, promedios por horario, adherencia y tabla. Imprimir/Guardar PDF, CSV para Excel y Compartir |
+| **Cuenta** | Inicio de sesión con correo/contraseña o Google, recuperación de contraseña, sincronización en tiempo real y uso sin conexión |
 | **Ajustes** | Perfil para reportes, notificaciones, horarios para medir la presión, tema claro/oscuro, respaldo e importación JSON |
+
+## Configurar Firebase (login y sincronización)
+
+Sin configurar, la app funciona en **modo local** (datos solo en el dispositivo). Para activar el login:
+
+1. Entra a [console.firebase.google.com](https://console.firebase.google.com) → **Agregar proyecto** (puedes desactivar Google Analytics). El plan gratuito *Spark* es suficiente.
+2. **Authentication** → *Comenzar* → pestaña **Método de inicio de sesión**: habilita **Correo electrónico/contraseña** y (opcional) **Google**.
+3. **Authentication → Configuración → Dominios autorizados** → *Agregar dominio*: `TU_USUARIO.github.io` (`localhost` ya viene incluido).
+4. **Firestore Database** → *Crear base de datos* → modo **producción** → elige la región más cercana (p. ej. `us-central1` o `southamerica-east1`).
+5. En Firestore → pestaña **Reglas**, reemplaza el contenido por el de [`firestore.rules`](firestore.rules) y pulsa **Publicar**. Así cada usuario solo puede ver sus propios datos.
+6. **Configuración del proyecto** (engrane) → *Tus apps* → ícono **</>** (Web) → registra la app → copia el objeto `firebaseConfig` y pega sus valores en [`js/firebase-config.js`](js/firebase-config.js).
+7. Sube los cambios a GitHub. Listo: abre la app, crea tu cuenta y entra con la misma cuenta en el celular y la computadora.
+
+> Los valores de `firebase-config.js` no son secretos (Firebase los expone a propósito); la protección de los datos la dan las reglas de Firestore y el login.
+
+**Cómo se guardan los datos:** Firestore en `users/{tuUID}/vitals|meds|intakes|appts` y `users/{tuUID}/kv/settings`. Cada dispositivo mantiene además una copia local (IndexedDB) que permite usar la app sin conexión y enviar recordatorios; los cambios hechos sin conexión se suben solos al reconectar. Al **cerrar sesión** se borra la copia local del dispositivo (tus datos siguen en tu cuenta). Si ya tenías datos antes de iniciar sesión, se suben automáticamente a tu cuenta la primera vez.
 
 ## Publicar en GitHub Pages
 
@@ -42,7 +59,7 @@ GitHub Pages solo sirve archivos estáticos, así que no hay un servidor que env
 
 ## Privacidad y datos
 
-Todo se guarda **solo en tu dispositivo** (IndexedDB). No se envía nada a ningún servidor. Cada dispositivo tiene sus propios datos: usa **Ajustes → Exportar respaldo / Importar** para pasar tu información entre el celular y la computadora y para no perderla.
+Con Firebase configurado, tus datos se guardan en tu propio proyecto de Firebase, protegidos por tu cuenta y las reglas de seguridad; nadie más puede leerlos. En **Ajustes → Exportar respaldo** puedes descargar una copia en JSON cuando quieras. En modo local, los datos viven solo en el dispositivo.
 
 ## Desarrollo local
 

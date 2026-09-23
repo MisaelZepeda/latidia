@@ -20,7 +20,8 @@
   </script>
 </head>
 <body>
-  <div class="app">
+  <div id="auth" class="auth" hidden></div>
+  <div class="app" id="app">
     <aside class="sidebar">
       <div class="brand">
         <span class="brand-logo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M19.5 12.6 12 20l-7.5-7.4A4.9 4.9 0 0 1 12 6.3a4.9 4.9 0 0 1 7.5 6.3Z"/><path d="M4 12h4l1.5-2.5 2.5 5 1.5-2.5H20"/></svg></span>
@@ -40,6 +41,7 @@
         </div>
         <div class="topbar-actions">
           <button class="icon-btn" id="bellBtn" title="Notificaciones" aria-label="Notificaciones"></button>
+          <button class="icon-btn avatar-btn" id="accountBtn" title="Mi cuenta" aria-label="Mi cuenta" hidden></button>
           <button class="icon-btn" id="themeBtn" title="Cambiar tema" aria-label="Cambiar tema"></button>
         </div>
       </header>
@@ -53,6 +55,8 @@
   <div id="toasts" class="toasts" aria-live="polite"></div>
 
   <script src="js/core.js"></script>
+  <script src="js/firebase-config.js"></script>
+  <script src="js/cloud.js"></script>
   <script src="js/icons.js"></script>
   <script src="js/chart.js"></script>
   <script src="js/app.js"></script>
