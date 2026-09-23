@@ -100,12 +100,19 @@
   const intakeMap = () => new Map(state.intakes.map(i => [i.id, i]));
 
   // ---------- UI helpers ----------
-  function toast(msg, ic) {
+  function toast(msg, ic, action) {
     const el = document.createElement('div');
     el.className = 'toast';
-    el.innerHTML = (ic ? icon(ic) : '') + esc(msg);
+    el.innerHTML = (ic ? icon(ic) : '') + `<span>${esc(msg)}</span>`;
+    if (action) {
+      const b = document.createElement('button');
+      b.type = 'button'; b.className = 'toast-action'; b.textContent = action.label;
+      b.onclick = () => { el.remove(); action.fn(); };
+      el.appendChild(b);
+      el.style.pointerEvents = 'auto';
+    }
     $('#toasts').appendChild(el);
-    setTimeout(() => el.remove(), 2800);
+    setTimeout(() => el.remove(), action ? 6000 : 2800);
   }
 
   function modal({ title, body, submit = 'Guardar', cancel = 'Cancelar', danger = false, onSubmit, onOpen }) {
@@ -227,6 +234,8 @@
     const doses = dosesForDate(state.meds, today());
     const im = intakeMap();
     const takenN = doses.filter(d => im.get(d.key)?.status === 'taken').length;
+    const skippedN = doses.filter(d => im.get(d.key)?.status === 'skipped').length;
+    const pendingToday = doses.filter(d => !im.has(d.key));
     const nowKey = today() + 'T' + timeKey(new Date());
     const upcoming = state.appts.filter(a => !a.done && (a.date + 'T' + (a.time || '23:59')) >= nowKey);
     const next = upcoming[0];
@@ -267,7 +276,9 @@
         <div class="card">
           <div class="card-head"><h3>${icon('pill')} Medicamentos de hoy</h3><a href="#/medicamentos" class="small">Ver todo</a></div>
           ${doses.length ? `<div class="progress" style="margin-bottom:6px"><div style="width:${Math.round(takenN * 100 / doses.length)}%"></div></div>
-            <div class="list">${doses.map(d => doseItem(d, im)).join('')}</div>`
+            <div class="small muted" style="margin-bottom:4px">${takenN} de ${doses.length} tomada${doses.length === 1 ? '' : 's'}${skippedN ? ` · ${skippedN} omitida${skippedN === 1 ? '' : 's'}` : ''}${takenN + skippedN ? ` · <a href="#/medicamentos" data-act="meds-today">Ver o modificar</a>` : ''}</div>
+            ${pendingToday.length ? `<div class="list">${pendingToday.map(d => doseItem(d, im)).join('')}</div>`
+              : `<div class="empty" style="padding:18px 8px">${icon('check')}<div><b>¡Listo!</b> Registraste todas tus dosis de hoy.</div></div>`}`
             : emptyState('pill', 'No hay dosis programadas hoy', `<button class="btn ghost small" style="margin-top:10px" data-act="new-med">${icon('plus')} Agregar medicamento</button>`)}
         </div>
         <div class="card">
@@ -404,14 +415,78 @@
   //  MEDICAMENTOS
   // ======================================================
   function doseItem(d, im) {
-    const st = im.get(d.key)?.status;
-    const past = at(d.key.split('|')[1], d.time) < new Date();
+    const it = im.get(d.key), st = it?.status;
+    const ds = d.key.split('|')[1];
+    const past = at(ds, d.time) < new Date();
+    const realAt = it && it.at ? new Date(it.at) : null;
+    const realTxt = st === 'taken' && realAt && dateKey(realAt) === ds ? ' ' + timeKey(realAt) : '';
     return `<div class="item dose ${st || ''}">
-      <button class="dose-btn ${st || ''}" data-act="dose" data-key="${d.key}" aria-label="${st ? 'Deshacer' : 'Marcar como tomada'}">${icon(st === 'skipped' ? 'skip' : 'check')}</button>
+      <button class="dose-btn ${st || ''}" data-act="dose" data-key="${d.key}" aria-label="${st ? 'Editar toma' : 'Marcar como tomada'}" title="${st ? 'Editar toma' : 'Marcar como tomada'}">${icon(st === 'skipped' ? 'skip' : 'check')}</button>
       <div class="item-body"><div class="item-title">${esc(d.med.name)}</div>
-        <div class="item-sub">${d.time}${doseLabel(d.med) ? ' · ' + esc(doseLabel(d.med)) : ''}${st === 'taken' ? ' · <span style="color:var(--ok)">Tomada</span>' : st === 'skipped' ? ' · Omitida' : past ? ' · <span style="color:var(--warn)">Pendiente</span>' : ''}</div></div>
-      ${st ? '' : `<button class="icon-btn" data-act="dose-skip" data-key="${d.key}" title="Omitir" aria-label="Omitir">${icon('skip')}</button>`}
+        <div class="item-sub">${d.time}${doseLabel(d.med) ? ' · ' + esc(doseLabel(d.med)) : ''}${st === 'taken' ? ` · <span style="color:var(--ok)">Tomada${realTxt}</span>` : st === 'skipped' ? ' · Omitida' : past ? ' · <span style="color:var(--warn)">Pendiente</span>' : ''}</div>
+        ${it && it.note ? `<div class="item-sub">${esc(it.note)}</div>` : ''}</div>
+      ${st ? `<button class="icon-btn" data-act="dose" data-key="${d.key}" title="Editar toma" aria-label="Editar toma">${icon('edit')}</button>`
+        : `<button class="icon-btn" data-act="dose-skip" data-key="${d.key}" title="Omitir" aria-label="Omitir">${icon('skip')}</button>`}
     </div>`;
+  }
+
+  // Registrar una dosis; aviso con "Deshacer" por si fue un toque accidental
+  async function markDose(key, status) {
+    await MS.markTaken(key, status);
+    await load(); render();
+    const [medId, , t] = key.split('|');
+    const med = state.meds.find(m => m.id === medId);
+    toast(`${med ? med.name : 'Dosis'} ${t}: ${status === 'taken' ? 'tomada' : 'omitida'}`, status === 'taken' ? 'check' : 'skip', {
+      label: 'Deshacer',
+      fn: async () => { await DB.del('intakes', key); await load(); render(); }
+    });
+  }
+
+  // Editar una toma ya registrada (estado, hora real, nota o quitar registro)
+  function intakeEditor(key) {
+    const it = state.intakes.find(i => i.id === key);
+    if (!it) return;
+    const [medId, ds, t] = key.split('|');
+    const med = state.meds.find(m => m.id === medId);
+    const atD = it.at ? new Date(it.at) : at(ds, t);
+    const realTime = dateKey(atD) === ds ? timeKey(atD) : t;
+    modal({
+      title: 'Editar toma',
+      body: `
+        <div class="item" style="padding:0;border:0"><div class="item-ic" style="background:var(--primary-soft);color:var(--primary)">${icon('pill')}</div>
+          <div class="item-body"><div class="item-title">${esc(med ? med.name : 'Medicamento eliminado')}</div>
+          <div class="item-sub">${[med && doseLabel(med), `programada ${relDay(ds).toLowerCase()} a las ${t}`].filter(Boolean).map(esc).join(' · ')}</div></div></div>
+        <div class="field"><span>Estado</span>
+          <div class="seg" style="width:100%"><button type="button" data-st="taken" class="${it.status === 'taken' ? 'active' : ''}" style="flex:1">${icon('check')} Tomada</button>
+          <button type="button" data-st="skipped" class="${it.status === 'skipped' ? 'active' : ''}" style="flex:1">${icon('skip')} Omitida</button></div>
+          <input type="hidden" name="status" value="${it.status}"></div>
+        <label class="field" data-taken ${it.status === 'taken' ? '' : 'hidden'}><span>Hora en que la tomaste</span><input type="time" name="realTime" value="${realTime}"></label>
+        <label class="field"><span>Nota (opcional)</span><input name="note" value="${esc(it.note)}" placeholder="Ej. con alimentos, la tomé tarde…"></label>
+        <button type="button" class="btn ghost block" data-remove style="color:var(--danger)">${icon('trash')} Quitar registro (dejar sin marcar)</button>`,
+      onOpen: f => {
+        f.addEventListener('click', async e => {
+          const b = e.target.closest('[data-st]');
+          if (b) {
+            f.status.value = b.dataset.st;
+            $$('[data-st]', f).forEach(x => x.classList.toggle('active', x === b));
+            $('[data-taken]', f).hidden = b.dataset.st !== 'taken';
+          }
+          const rm = e.target.closest('[data-remove]');
+          if (rm) {
+            if (!rm.dataset.armed) { rm.dataset.armed = '1'; rm.innerHTML = `${icon('alert')} Toca de nuevo para confirmar`; rm.classList.add('danger'); rm.style.color = '#fff'; return; }
+            await DB.del('intakes', key);
+            $('#modal').close();
+            await load(); render(); toast('Registro quitado');
+          }
+        });
+      },
+      onSubmit: async f => {
+        const status = f.status.value;
+        const when = status === 'taken' && f.realTime.value ? at(ds, f.realTime.value) : new Date();
+        await DB.put('intakes', Object.assign({}, it, { status, at: when.toISOString(), note: f.note.value.trim() }));
+        await load(); render(); toast('Toma actualizada', 'check');
+      }
+    });
   }
 
   function adherence(from, to) {
@@ -1380,21 +1455,11 @@
     medday: el => { state.medDay = addDays(state.medDay, +el.dataset.v); render(); },
     dose: async el => {
       const key = el.dataset.key;
-      const prev = state.intakes.find(i => i.id === key);
-      if (prev) {
-        const [medId, ds, t] = key.split('|');
-        const med = state.meds.find(m => m.id === medId);
-        const what = prev.status === 'taken' ? 'tomada' : 'omitida';
-        const when = prev.at ? ` (registrada ${new Date(prev.at).toLocaleString('es', { dateStyle: 'medium', timeStyle: 'short' })})` : '';
-        if (!(await confirmDlg('Desmarcar toma',
-          `¿Quitar la marca de <b>${what}</b> de ${esc(med ? med.name : 'este medicamento')} ${['Hoy', 'Ayer', 'Mañana'].includes(relDay(ds)) ? 'de ' + relDay(ds).toLowerCase() : 'del ' + relDay(ds)} a las ${t}${when}?`,
-          'Sí, desmarcar'))) return;
-        await DB.del('intakes', key);
-        toast('Toma desmarcada');
-      } else await MS.markTaken(key, 'taken');
-      await load(); render();
+      if (state.intakes.some(i => i.id === key)) return intakeEditor(key);
+      await markDose(key, 'taken');
     },
-    'dose-skip': async el => { await MS.markTaken(el.dataset.key, 'skipped'); await load(); render(); },
+    'dose-skip': el => markDose(el.dataset.key, 'skipped'),
+    'meds-today': () => { state.medDay = today(); location.hash = '#/medicamentos'; },
     'meds-ics': () => {
       const active = state.meds.filter(m => m.active !== false);
       download('medicamentos-latidia.ics', icsWrap(active.flatMap(medEvents)), 'text/calendar');
