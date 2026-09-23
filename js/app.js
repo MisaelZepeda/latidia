@@ -79,7 +79,7 @@
   const state = {
     settings: {}, vitals: [], meds: [], intakes: [], appts: [],
     reg: null, installEvt: null,
-    vitalsRange: 30, medDay: today(), showIds: false,
+    vitalsRange: 30, medDay: today(), showIds: false, cardFace: 'front',
     calMonth: null, calSel: today(),
     report: null
   };
@@ -180,7 +180,7 @@
     { id: 'agenda', label: 'Agenda', title: 'Agenda médica', icon: 'calendar', render: renderAgenda, fab: () => apptForm(null, state.calSel) },
     { id: 'reportes', label: 'Reportes', title: 'Reportes', icon: 'report', render: renderReports },
     { id: 'ajustes', label: 'Ajustes', title: 'Ajustes', icon: 'settings', render: renderSettings },
-    { id: 'ficha', label: 'Ficha', title: 'Mi ficha médica', icon: 'user', render: renderFicha, nav: false }
+    { id: 'ficha', label: 'Ficha', title: 'Mi ficha médica', icon: 'user', render: renderFicha, after: () => fichaAfter(), nav: false }
   ];
   function parseHash() {
     const h = location.hash.replace(/^#\/?/, '');
@@ -1052,6 +1052,20 @@
         </div>
       </div>
 
+      <div class="card">
+        <div class="card-head"><h3>${icon('card')} Mi tarjeta médica</h3>
+          <div class="seg"><button data-act="card-face" data-v="front" class="${state.cardFace === 'front' ? 'active' : ''}">Frente</button>
+          <button data-act="card-face" data-v="back" class="${state.cardFace === 'back' ? 'active' : ''}">Reverso</button></div></div>
+        <div class="med-card"><img id="medCardImg" alt="Tarjeta médica (${state.cardFace === 'back' ? 'reverso' : 'frente'})" hidden><div class="med-card-ph" id="medCardPh">Generando tarjeta…</div></div>
+        <label class="check" style="margin-top:12px"><input type="checkbox" data-card-ids ${s.cardIds ? 'checked' : ''}> Incluir CURP y NSS en la tarjeta y el QR</label>
+        <div class="report-actions" style="max-width:none">
+          <button class="btn" data-act="card-img">${icon('download')} ${isMobile() ? 'Guardar imagen' : 'Descargar imagen'}</button>
+          <button class="btn outline" data-act="card-pdf">${icon('printer')} Imprimir tamaño credencial</button>
+        </div>
+        <p class="small muted" style="margin-bottom:0">El QR contiene tus datos esenciales como texto: cualquier cámara lo lee sin internet ni apps.
+          ${isIOS() ? 'Tip: guárdala en Fotos y márcala como favorita (♡) para encontrarla rápido.' : ''}</p>
+      </div>
+
       <div class="allergy-strip ${p.allergies.length ? '' : 'none'}">${icon('alert')}
         <div><b>${p.allergies.length ? 'Alergias' : 'Sin alergias registradas'}</b>
         ${p.allergies.length ? `<div class="row" style="gap:6px;margin-top:6px">${p.allergies.map(a => `<span class="chip danger">${esc(a)}</span>`).join('')}</div>` : ''}</div></div>
@@ -1092,6 +1106,12 @@
       </div>
       <p class="small muted" style="margin:0">${icon('lock', '').replace('class="ic ', 'style="width:14px;height:14px;vertical-align:-2px" class="ic ')} Tu ficha se guarda en tu cuenta y solo tú puedes verla. La CURP y el NSS se muestran ocultos en pantalla; en el PDF aparecen completos.</p>
     </div>`;
+  }
+
+  function fichaAfter() {
+    drawCardPreview();
+    const cb = $('[data-card-ids]');
+    if (cb) cb.onchange = async () => { state.settings.cardIds = cb.checked; await saveSettings(); render(); };
   }
 
   function fichaForm() {
@@ -1171,6 +1191,27 @@
         render(); toast('Ficha guardada', 'check');
       }
     });
+  }
+
+  function cardData() {
+    const d = fichaPdfData(), s = state.settings;
+    return Object.assign(d, {
+      birthShort: s.birth ? s.birth.split('-').reverse().join('/') : '',
+      updated: new Date().toLocaleDateString('es', { day: '2-digit', month: '2-digit', year: 'numeric' }),
+      includeIds: !!s.cardIds,
+      meds: d.meds.map(m => Object.assign({}, m, { schedule: m.schedule.replace(/ — todos los días$/, ' diario') }))
+    });
+  }
+
+  async function drawCardPreview() {
+    const img = $('#medCardImg');
+    if (!img) return;
+    try {
+      await MedCard.load();
+      if (document.fonts && document.fonts.ready) await document.fonts.ready;
+      img.src = MedCard.preview(cardData(), state.cardFace);
+      img.hidden = false; $('#medCardPh').hidden = true;
+    } catch (e) { $('#medCardPh').textContent = e.message; }
   }
 
   function fichaPdfData() {
@@ -1408,6 +1449,29 @@
     theme: el => setTheme(el.dataset.v),
     'edit-ficha': () => fichaForm(),
     'toggle-ids': () => { state.showIds = !state.showIds; render(); },
+    'card-face': el => { state.cardFace = el.dataset.v; render(); },
+    'card-img': async el => {
+      const label = el.innerHTML;
+      el.disabled = true; el.innerHTML = 'Generando…';
+      try {
+        await MedCard.load();
+        const blob = await MedCard.image(cardData());
+        const nm = (state.settings.name || 'paciente').normalize('NFD').replace(/[^\w]+/g, '-').replace(/^-|-$/g, '');
+        await deliverFile(blob, `Tarjeta-medica_${nm}.png`, 'Tarjeta médica');
+      } catch (e) { console.error(e); toast(e.message || 'No se pudo generar la imagen'); }
+      finally { el.disabled = false; el.innerHTML = label; }
+    },
+    'card-pdf': async el => {
+      const label = el.innerHTML;
+      el.disabled = true; el.innerHTML = 'Generando…';
+      try {
+        await Promise.all([MedCard.load(), ReportPDF.load()]);
+        const blob = MedCard.pdf(cardData());
+        const nm = (state.settings.name || 'paciente').normalize('NFD').replace(/[^\w]+/g, '-').replace(/^-|-$/g, '');
+        await deliverFile(blob, `Tarjeta-medica-imprimible_${nm}.pdf`, 'Tarjeta médica para imprimir');
+      } catch (e) { console.error(e); toast(e.message || 'No se pudo generar el PDF'); }
+      finally { el.disabled = false; el.innerHTML = label; }
+    },
     'ficha-pdf': async el => {
       const label = el.innerHTML;
       el.disabled = true; el.innerHTML = 'Generando…';

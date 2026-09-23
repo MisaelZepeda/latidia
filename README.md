@@ -8,7 +8,7 @@ HTML + CSS + JavaScript puro, alojada en GitHub Pages, con **inicio de sesión y
 
 | Sección | Qué hace |
 |---|---|
-| **Ficha médica** | Tarjeta de vistazo rápido en Inicio y ficha completa: nombre, edad, sexo, tipo de sangre, CURP (autocompleta fecha de nacimiento y sexo) y NSS ocultos por defecto, institución y clínica, alergias, padecimientos, medicamentos actuales, estatura/peso/IMC, última presión, contacto de emergencia y médico tratante con botón para llamar. Exportable a PDF |
+| **Ficha médica** | Tarjeta de vistazo rápido en Inicio y ficha completa: nombre, edad, sexo, tipo de sangre, CURP (autocompleta fecha de nacimiento y sexo) y NSS ocultos por defecto, institución y clínica, alergias, padecimientos, medicamentos actuales, estatura/peso/IMC, última presión, contacto de emergencia y médico tratante con botón para llamar. Exportable a PDF. **Tarjeta médica** tamaño credencial con código QR (datos esenciales como texto, se lee sin internet): se guarda como imagen en Fotos o se imprime en PDF (frente y reverso, para recortar y doblar) |
 | **Inicio** | Última toma, promedios de 7 días, dosis de hoy, próximas citas y tendencia de 14 días |
 | **Signos** | Presión (sistólica/diastólica), pulso, temperatura, SpO₂, glucosa y peso. Clasificación automática AHA/ACC 2017 y gráfico |
 | **Medicinas** | Presentación (tableta, cápsula, jarabe, suspensión…), dosis con unidad (mg, g, ml, UI…) y cantidad por toma. Frecuencia *cada X horas* desde la primera toma (calcula automáticamente las siguientes tomas, la fecha final y el total del tratamiento) u horarios fijos por día. Marcar dosis tomada/omitida (con confirmación para desmarcar), adherencia, exportación de alarmas al calendario del teléfono (.ics) |
