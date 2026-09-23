@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>MedicSoft</title>
+  <meta name="description" content="Monitoreo personal de presión arterial, pulso, medicamentos y citas médicas.">
+  <meta name="theme-color" content="#0f766e" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0b1416" media="(prefers-color-scheme: dark)">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="MedicSoft">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/favicon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="stylesheet" href="css/styles.css">
+  <script>
+    try { const t = localStorage.getItem('ms-theme'); if (t) document.documentElement.dataset.theme = t; } catch (_) {}
+  </script>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand">
+        <span class="brand-logo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M19.5 12.6 12 20l-7.5-7.4A4.9 4.9 0 0 1 12 6.3a4.9 4.9 0 0 1 7.5 6.3Z"/><path d="M4 12h4l1.5-2.5 2.5 5 1.5-2.5H20"/></svg></span>
+        <span>MedicSoft</span>
+      </div>
+      <nav class="nav" id="nav"></nav>
+      <div class="sidebar-foot">
+        <button class="btn ghost small" id="installBtn" hidden></button>
+      </div>
+    </aside>
+
+    <div class="main">
+      <header class="topbar">
+        <div class="topbar-title">
+          <span class="brand-logo sm"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M19.5 12.6 12 20l-7.5-7.4A4.9 4.9 0 0 1 12 6.3a4.9 4.9 0 0 1 7.5 6.3Z"/><path d="M4 12h4l1.5-2.5 2.5 5 1.5-2.5H20"/></svg></span>
+          <h1 id="pageTitle">Inicio</h1>
+        </div>
+        <div class="topbar-actions">
+          <button class="icon-btn" id="bellBtn" title="Notificaciones" aria-label="Notificaciones"></button>
+          <button class="icon-btn" id="themeBtn" title="Cambiar tema" aria-label="Cambiar tema"></button>
+        </div>
+      </header>
+      <main id="view" class="view" tabindex="-1"></main>
+    </div>
+  </div>
+
+  <nav class="bottom-nav" id="bottomNav"></nav>
+
+  <dialog id="modal" class="modal"><form method="dialog" id="modalForm" novalidate></form></dialog>
+  <div id="toasts" class="toasts" aria-live="polite"></div>
+
+  <script src="js/core.js"></script>
+  <script src="js/icons.js"></script>
+  <script src="js/chart.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

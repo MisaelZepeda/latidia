@@ -1,0 +1,25 @@
+{
+  "name": "MedicSoft — Mi salud",
+  "short_name": "MedicSoft",
+  "description": "Monitoreo de presión arterial, pulso, medicamentos, citas médicas y exámenes.",
+  "lang": "es",
+  "id": "./",
+  "start_url": "./#/inicio",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#f3f6f7",
+  "theme_color": "#0f766e",
+  "categories": ["health", "medical", "lifestyle"],
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Registrar presión", "short_name": "Presión", "url": "./#/signos?nuevo=1", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Medicamentos de hoy", "short_name": "Medicinas", "url": "./#/medicamentos", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Agenda", "url": "./#/agenda", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Reportes", "url": "./#/reportes", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }] }
+  ]
+}
