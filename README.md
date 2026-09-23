@@ -1,4 +1,4 @@
-# MedicSoft — Monitoreo personal de salud
+# Latidia — Monitoreo personal de salud
 
 App web progresiva (PWA) para registrar **presión arterial, pulso y otros signos vitales**, controlar la **toma de medicamentos**, llevar un **calendario de citas médicas y exámenes**, generar **reportes por rango de fechas** (PDF / CSV) y recibir **notificaciones** en el celular y la computadora.
 
@@ -71,4 +71,4 @@ Abre `http://localhost:5173`. (El service worker y las notificaciones requieren 
 Al publicar cambios, sube el número de `CACHE` en `sw.js` (`medicsoft-v2`, `v3`…) para que los dispositivos instalados descarguen la versión nueva.
 
 ---
-*MedicSoft es una herramienta de registro personal, no un dispositivo médico. Ante valores alarmantes o síntomas, consulta a tu médico.*
+*Latidia es una herramienta de registro personal, no un dispositivo médico. Ante valores alarmantes o síntomas, consulta a tu médico.*

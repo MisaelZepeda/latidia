@@ -1,6 +1,6 @@
 {
-  "name": "MedicSoft — Mi salud",
-  "short_name": "MedicSoft",
+  "name": "Latidia — Mi salud",
+  "short_name": "Latidia",
   "description": "Monitoreo de presión arterial, pulso, medicamentos, citas médicas y exámenes.",
   "lang": "es",
   "id": "./",
@@ -8,8 +8,8 @@
   "scope": "./",
   "display": "standalone",
   "orientation": "any",
-  "background_color": "#f3f6f7",
-  "theme_color": "#0f766e",
+  "background_color": "#f3f6fa",
+  "theme_color": "#1d4ed8",
   "categories": ["health", "medical", "lifestyle"],
   "icons": [
     { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },

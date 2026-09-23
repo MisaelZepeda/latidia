@@ -1,7 +1,7 @@
-/* MedicSoft — service worker: caché offline + notificaciones */
+/* Latidia — service worker: caché offline + notificaciones */
 importScripts('js/core.js');
 
-const CACHE = 'medicsoft-v4';
+const CACHE = 'latidia-v5';
 // Librerías externas versionadas (no cambian): caché primero
 const CDN = ['https://www.gstatic.com/firebasejs/', 'https://cdn.jsdelivr.net/npm/'];
 const ASSETS = [
@@ -70,7 +70,7 @@ self.addEventListener('message', e => {
 self.addEventListener('push', e => {
   let d = {};
   try { d = e.data ? e.data.json() : {}; } catch (_) { d = { body: e.data && e.data.text() }; }
-  e.waitUntil(self.registration.showNotification(d.title || 'MedicSoft', {
+  e.waitUntil(self.registration.showNotification(d.title || 'Latidia', {
     body: d.body || '', icon: 'icons/icon-192.png', badge: 'icons/badge-96.png', data: d.data || {}
   }).then(() => MS.runReminders(self.registration)));
 });

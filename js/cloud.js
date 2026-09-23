@@ -1,4 +1,4 @@
-/* MedicSoft — autenticación y sincronización con Firebase.
+/* Latidia — autenticación y sincronización con Firebase.
    Firestore es la fuente de verdad; IndexedDB (MS.DB) es una copia local que usa la app
    y el service worker (recordatorios en segundo plano y uso sin conexión). */
 (function (g) {

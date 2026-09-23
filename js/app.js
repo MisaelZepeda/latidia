@@ -1,4 +1,4 @@
-/* MedicSoft — aplicación principal */
+/* Latidia — aplicación principal */
 (function () {
   'use strict';
   const { DB, pad, dateKey, timeKey, at, uid, dosesForDate, bpCategory } = MS;
@@ -197,7 +197,7 @@
     const changed = currentRoute !== route.id;
     currentRoute = route.id;
     $('#pageTitle').textContent = route.title;
-    document.title = `${route.title} · MedicSoft`;
+    document.title = `${route.title} · Latidia`;
     $$('[data-route]').forEach(a => a.classList.toggle('active', a.dataset.route === route.id));
     const view = $('#view');
     view.innerHTML = route.render();
@@ -235,7 +235,7 @@
       banners.push(`<div class="banner">${icon('bell')}<div class="item-body"><b>Activa las notificaciones</b><div class="small muted">Para recibir recordatorios de medicamentos, citas y tomas de presión.</div></div><button class="btn small" data-act="enable-notif">Activar</button></div>`);
     }
     if (!isStandalone() && state.installEvt) {
-      banners.push(`<div class="banner">${icon('install')}<div class="item-body"><b>Instala MedicSoft</b><div class="small muted">Acceso rápido y notificaciones en tu celular o computadora.</div></div><button class="btn small" data-act="install">Instalar</button></div>`);
+      banners.push(`<div class="banner">${icon('install')}<div class="item-body"><b>Instala Latidia</b><div class="small muted">Acceso rápido y notificaciones en tu celular o computadora.</div></div><button class="btn small" data-act="install">Instalar</button></div>`);
     }
 
     const cat = last && bpCategory(last.sys, last.dia);
@@ -251,7 +251,7 @@
             <div class="big num" style="margin:14px 0 6px">${last.sys}/${last.dia} <small>mmHg</small></div>
             <div class="row">${last.pulse ? `<span class="chip">${icon('pulse')} ${last.pulse} lpm</span>` : ''}<span class="chip"><span class="dot" style="color:${cat.color}"></span>${cat.label}</span></div>`
             : `<div style="margin:18px 0" class="muted">Aún no tienes registros. Registra tu primera toma.</div>`}
-          <div style="margin-top:16px;position:relative;z-index:1"><button class="btn" style="background:#fff;color:#0f766e" data-act="new-vital">${icon('plus')} Registrar toma</button></div>
+          <div style="margin-top:16px;position:relative;z-index:1"><button class="btn" style="background:#fff;color:#1d4ed8" data-act="new-vital">${icon('plus')} Registrar toma</button></div>
         </div>
         <div class="grid stats">
           <div class="card stat">${statIc('trend', 'var(--sys)')}<div><div class="label">Promedio 7 días</div><div class="value num">${wBP.length ? `${avg(wBP.map(v => v.sys))}/${avg(wBP.map(v => v.dia))}` : '—'}</div></div></div>
@@ -732,7 +732,7 @@
   const icsLocal = d => `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}T${pad(d.getHours())}${pad(d.getMinutes())}00`;
   const icsStamp = () => new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+/, '');
   const alarm = (trigger, text) => ['BEGIN:VALARM', 'ACTION:DISPLAY', `TRIGGER:${trigger}`, `DESCRIPTION:${icsEsc(text)}`, 'END:VALARM'];
-  const icsWrap = events => ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//MedicSoft//ES', 'CALSCALE:GREGORIAN', ...events.flat(), 'END:VCALENDAR'].join('\r\n');
+  const icsWrap = events => ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Latidia//ES', 'CALSCALE:GREGORIAN', ...events.flat(), 'END:VCALENDAR'].join('\r\n');
 
   function apptEvent(a) {
     const s = at(a.date, a.time || '09:00'), e = new Date(s.getTime() + 3600000);
@@ -1020,7 +1020,7 @@
       <div class="stack-v">
         <div class="card">
           <div class="card-head"><h3>${icon('install')} Instalación</h3><span class="chip" style="${isStandalone() ? 'color:var(--ok)' : ''}">${isStandalone() ? 'Instalada' : 'En navegador'}</span></div>
-          ${state.installEvt ? `<button class="btn block" data-act="install">${icon('install')} Instalar MedicSoft</button>` :
+          ${state.installEvt ? `<button class="btn block" data-act="install">${icon('install')} Instalar Latidia</button>` :
             isStandalone() ? '<div class="muted small">Estás usando la app instalada. ✅</div>' :
             `<div class="small muted">${isIOS() ? 'Safari: <b>Compartir</b> → <b>Agregar a pantalla de inicio</b>.' : 'Chrome/Edge: menú ⋮ → <b>Instalar aplicación</b> o el ícono de instalar en la barra de direcciones.'}</div>`}
         </div>
@@ -1039,7 +1039,7 @@
             <button class="btn ghost small" style="color:var(--danger)" data-act="wipe">${icon('trash')} Borrar todo</button></div>
         </div>
         <div class="card small muted">
-          <b style="color:var(--text)">MedicSoft</b> es una herramienta de registro personal y no es un dispositivo médico. Ante valores alarmantes o síntomas, consulta a tu médico o acude a urgencias.
+          <b style="color:var(--text)">Latidia</b> es una herramienta de registro personal y no es un dispositivo médico. Ante valores alarmantes o síntomas, consulta a tu médico o acude a urgencias.
         </div>
       </div>
     </div>`;
@@ -1123,7 +1123,7 @@
     'dose-skip': async el => { await MS.markTaken(el.dataset.key, 'skipped'); await load(); render(); },
     'meds-ics': () => {
       const active = state.meds.filter(m => m.active !== false);
-      download('medicamentos-medicsoft.ics', icsWrap(active.flatMap(medEvents)), 'text/calendar');
+      download('medicamentos-latidia.ics', icsWrap(active.flatMap(medEvents)), 'text/calendar');
       toast('Abre el archivo para añadir las alarmas a tu calendario');
     },
 
@@ -1137,7 +1137,7 @@
     'appts-ics': () => {
       const nowKey = today() + 'T' + timeKey(new Date());
       const list = state.appts.filter(a => !a.done && (a.date + 'T' + (a.time || '23:59')) >= nowKey);
-      download('citas-medicsoft.ics', icsWrap(list.map(apptEvent)), 'text/calendar');
+      download('citas-latidia.ics', icsWrap(list.map(apptEvent)), 'text/calendar');
     },
     calsel: el => {
       state.calSel = el.dataset.d;
@@ -1164,7 +1164,7 @@
     'enable-notif': enableNotifications,
     'test-notif': async () => {
       const reg = await navigator.serviceWorker.ready;
-      await reg.showNotification('🔔 Notificación de prueba', { body: '¡Las notificaciones de MedicSoft funcionan!', icon: 'icons/icon-192.png', badge: 'icons/badge-96.png', tag: 'test' });
+      await reg.showNotification('🔔 Notificación de prueba', { body: '¡Las notificaciones de Latidia funcionan!', icon: 'icons/icon-192.png', badge: 'icons/badge-96.png', tag: 'test' });
     },
     install: async () => {
       if (!state.installEvt) return;
@@ -1177,7 +1177,7 @@
       if (!(await confirmDlg('Cerrar sesión', 'Tus datos seguirán guardados en tu cuenta. En este dispositivo se borrará la copia local y dejarás de recibir recordatorios hasta que vuelvas a iniciar sesión.', 'Cerrar sesión'))) return;
       await Cloud.signOut();
     },
-    backup: async () => download(`respaldo-medicsoft-${today()}.json`, JSON.stringify(await DB.exportAll(), null, 1), 'application/json'),
+    backup: async () => download(`respaldo-latidia-${today()}.json`, JSON.stringify(await DB.exportAll(), null, 1), 'application/json'),
     demo: async () => {
       if (!(await confirmDlg('Datos de ejemplo', 'Se agregarán 30 días de lecturas, 2 medicamentos y 2 citas de ejemplo a tus datos.', 'Agregar'))) return;
       await loadDemo(); await load(); render(); toast('Datos de ejemplo cargados', 'check');
@@ -1277,7 +1277,7 @@
     const logIc = { med: 'pill', bp: 'heart', appt: 'calendar' };
     return `
       ${perm !== 'granted' ? `<div class="banner ${perm === 'denied' ? 'warn' : ''}">${icon('bell')}<div class="item-body small">${
-        perm === 'denied' ? 'Las notificaciones están bloqueadas. Habilítalas en la configuración del navegador o del iPhone (Ajustes → Notificaciones → MedicSoft).'
+        perm === 'denied' ? 'Las notificaciones están bloqueadas. Habilítalas en la configuración del navegador o del iPhone (Ajustes → Notificaciones → Latidia).'
         : perm === 'unsupported' ? (isIOS() && !isStandalone() ? 'En iPhone instala primero la app en la pantalla de inicio para recibir notificaciones.' : 'Este navegador no admite notificaciones.')
         : 'Activa las notificaciones para recibir tus recordatorios.'}</div>
         ${perm === 'default' ? `<button type="button" class="btn small" data-act="enable-notif">Activar</button>` : ''}</div>` : ''}
@@ -1373,7 +1373,7 @@
     const m = authMode;
     $('#auth').innerHTML = `
       <div class="card auth-card">
-        <div class="auth-brand"><span class="brand-logo">${LOGO}</span><h1>MedicSoft</h1>
+        <div class="auth-brand"><span class="brand-logo">${LOGO}</span><h1>Latidia</h1>
           <div class="muted small">Tu presión, medicamentos y citas médicas, sincronizados en todos tus dispositivos.</div></div>
         ${m === 'reset'
           ? `<h2 style="margin-bottom:6px">Recuperar contraseña</h2><p class="small muted" style="margin-top:0">Te enviaremos un enlace a tu correo para crear una nueva contraseña.</p>`
@@ -1441,7 +1441,7 @@
 
   function renderCloudError() {
     $('#auth').innerHTML = `<div class="card auth-card" style="text-align:center">
-      <div class="auth-brand"><span class="brand-logo">${LOGO}</span><h1>MedicSoft</h1></div>
+      <div class="auth-brand"><span class="brand-logo">${LOGO}</span><h1>Latidia</h1></div>
       <p><b>No se pudo conectar</b></p>
       <p class="muted small">Necesitas conexión a internet la primera vez que abres la app para iniciar sesión.</p>
       <button class="btn block" onclick="location.reload()">Reintentar</button></div>`;

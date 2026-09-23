@@ -1,4 +1,4 @@
-/* MedicSoft — reporte PDF profesional (tamaño carta) con jsPDF */
+/* Latidia — reporte PDF profesional (tamaño carta) con jsPDF */
 (function (g) {
   'use strict';
   const LIBS = [
@@ -24,8 +24,8 @@
 
   // ---------- Estilo ----------
   const C = {
-    primary: [15, 118, 110], primarySoft: [217, 243, 239], text: [17, 31, 35], muted: [95, 110, 115],
-    line: [214, 222, 224], zebra: [246, 248, 249], box: [243, 247, 248],
+    primary: [29, 78, 216], primarySoft: [219, 234, 254], text: [15, 26, 43], muted: [90, 102, 120],
+    line: [214, 221, 232], zebra: [245, 248, 252], box: [241, 245, 251],
     sys: [225, 29, 72], dia: [37, 99, 235], pulse: [147, 51, 234], band: [222, 244, 228]
   };
   const CAT_RGB = { normal: [22, 163, 74], elev: [202, 138, 4], h1: [234, 88, 12], h2: [220, 38, 38], crisis: [127, 29, 29], low: [2, 132, 199] };
@@ -42,7 +42,7 @@
     };
     const W = doc.internal.pageSize.getWidth(), H = doc.internal.pageSize.getHeight();
     const M = 16, CW = W - 2 * M, BOTTOM = H - 18;
-    doc.setProperties({ title: L(R.title), subject: 'Reporte de presión arterial', author: L(R.patient || 'MedicSoft'), creator: 'MedicSoft' });
+    doc.setProperties({ title: L(R.title), subject: 'Reporte de presión arterial', author: L(R.patient || 'Latidia'), creator: 'Latidia' });
 
     const color = (fn, c) => doc[fn](c[0], c[1], c[2]);
     const font = (size, style = 'normal', c = C.text) => { doc.setFont('helvetica', style); doc.setFontSize(size); color('setTextColor', c); };
@@ -66,9 +66,9 @@
     doc.triangle(M + 2.85, 14.3, M + 13.15, 14.3, M + 8, 19.8, 'F');
     doc.setDrawColor(255, 255, 255); doc.setLineWidth(0.7);
     doc.lines([[2, 0], [0.9, -1.6], [1.5, 3.2], [0.9, -1.6], [2.4, 0]], M + 3.5, 14.2);
-    font(17, 'bold', [255, 255, 255]); doc.text('MedicSoft', M + 20, 14.5);
-    font(9.5, 'normal', [220, 245, 241]); doc.text(L(R.title), M + 20, 20.5);
-    font(8, 'normal', [220, 245, 241]);
+    font(17, 'bold', [255, 255, 255]); doc.text('Latidia', M + 20, 14.5);
+    font(9.5, 'normal', [219, 234, 254]); doc.text(L(R.title), M + 20, 20.5);
+    font(8, 'normal', [219, 234, 254]);
     doc.text(L('Generado: ' + R.generated), W - M, 14.5, { align: 'right' });
     doc.text(L('Periodo: ' + R.periodLabel), W - M, 20.5, { align: 'right' });
     y = 38;
@@ -201,7 +201,7 @@
       doc.setPage(i);
       color('setDrawColor', C.line); doc.setLineWidth(0.3); doc.line(M, H - 14, W - M, H - 14);
       font(7, 'normal', C.muted);
-      doc.text(L(`MedicSoft · ${R.patient || ''}${R.patient ? ' · ' : ''}${R.periodLabel}`), M, H - 10);
+      doc.text(L(`Latidia · ${R.patient || ''}${R.patient ? ' · ' : ''}${R.periodLabel}`), M, H - 10);
       doc.text('Documento informativo generado por el paciente; no sustituye la valoración de un profesional de la salud.', M, H - 6.5);
       font(8, 'bold', C.muted); doc.text(`Página ${i} de ${pages}`, W - M, H - 10, { align: 'right' });
     }

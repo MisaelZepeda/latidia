@@ -1,4 +1,4 @@
-/* MedicSoft — núcleo compartido (página + service worker).
+/* Latidia — núcleo compartido (página + service worker).
    Script clásico: se carga con <script> en la página y con importScripts() en sw.js */
 (function (g) {
   'use strict';
