@@ -3,31 +3,41 @@
 (function (g) {
   'use strict';
 
-  const DB_NAME = 'medicsoft';
-  const DB_VERSION = 1;
-  const STORES = ['vitals', 'meds', 'intakes', 'appts', 'kv'];
+  // Bases locales. La principal se queda en versión 1: subirla exigiría cerrar las conexiones de
+  // versiones anteriores de la app (p. ej. el service worker instalado) y podría bloquear el arranque.
+  // Las colecciones nuevas van en bases aparte.
+  const DATABASES = [
+    { name: 'medicsoft', version: 1, stores: ['vitals', 'meds', 'intakes', 'appts', 'kv'] },
+    { name: 'latidia-labs', version: 1, stores: ['labs'] }
+  ];
+  const STORES = ['vitals', 'meds', 'intakes', 'appts', 'labs', 'kv'];
+  const dbOf = store => DATABASES.find(d => d.stores.includes(store));
 
-  let dbPromise = null;
-  function open() {
-    if (dbPromise) return dbPromise;
-    dbPromise = new Promise((resolve, reject) => {
-      const req = indexedDB.open(DB_NAME, DB_VERSION);
+  const dbPromises = {};
+  function open(def) {
+    if (dbPromises[def.name]) return dbPromises[def.name];
+    dbPromises[def.name] = new Promise((resolve, reject) => {
+      const req = indexedDB.open(def.name, def.version);
       req.onupgradeneeded = () => {
         const db = req.result;
-        for (const s of STORES) {
+        for (const s of def.stores) {
           if (!db.objectStoreNames.contains(s)) {
             db.createObjectStore(s, { keyPath: s === 'kv' ? 'key' : 'id' });
           }
         }
       };
-      req.onsuccess = () => resolve(req.result);
-      req.onerror = () => reject(req.error);
+      req.onsuccess = () => {
+        const db = req.result;
+        db.onversionchange = () => { db.close(); delete dbPromises[def.name]; };
+        resolve(db);
+      };
+      req.onerror = () => { delete dbPromises[def.name]; reject(req.error); };
     });
-    return dbPromise;
+    return dbPromises[def.name];
   }
 
   function tx(store, mode, fn) {
-    return open().then(db => new Promise((resolve, reject) => {
+    return open(dbOf(store)).then(db => new Promise((resolve, reject) => {
       const t = db.transaction(store, mode);
       const os = t.objectStore(store);
       const res = fn(os);

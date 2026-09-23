@@ -1,7 +1,7 @@
 /* Latidia — service worker: caché offline + notificaciones */
 importScripts('js/core.js');
 
-const CACHE = 'latidia-v8';
+const CACHE = 'latidia-v9';
 // Librerías externas versionadas (no cambian): caché primero
 const CDN = ['https://www.gstatic.com/firebasejs/', 'https://cdn.jsdelivr.net/npm/'];
 const ASSETS = [
@@ -16,6 +16,7 @@ const ASSETS = [
   'js/chart.js',
   'js/report-pdf.js',
   'js/card.js',
+  'js/labs.js',
   'js/app.js',
   'icons/icon-192.png',
   'icons/icon-512.png',

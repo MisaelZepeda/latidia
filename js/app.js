@@ -86,8 +86,8 @@
   const DEFAULT_SETTINGS = { name: '', doctor: '', notify: true, notifyMeds: true, notifyAppts: true, notifyBP: true, bpTimes: ['08:00', '20:00'] };
 
   async function load() {
-    const [settings, vitals, meds, intakes, appts] = await Promise.all([
-      DB.getKV('settings', {}), DB.all('vitals'), DB.all('meds'), DB.all('intakes'), DB.all('appts')
+    const [settings, vitals, meds, intakes, appts, labs] = await Promise.all([
+      DB.getKV('settings', {}), DB.all('vitals'), DB.all('meds'), DB.all('intakes'), DB.all('appts'), DB.all('labs')
     ]);
     state.settings = Object.assign({}, DEFAULT_SETTINGS, settings);
     if (!settings.bpTimes) await DB.setKV('settings', state.settings); // el service worker lee estos valores
@@ -95,6 +95,7 @@
     state.meds = meds.sort((a, b) => a.name.localeCompare(b.name));
     state.intakes = intakes;
     state.appts = appts.sort((a, b) => (a.date + (a.time || '')).localeCompare(b.date + (b.time || '')));
+    state.labs = labs.sort((a, b) => b.date.localeCompare(a.date));
   }
   const saveSettings = () => DB.setKV('settings', state.settings);
   const intakeMap = () => new Map(state.intakes.map(i => [i.id, i]));
@@ -123,7 +124,7 @@
     form.innerHTML = `
       <div class="modal-head"><h2>${title}</h2><button type="button" class="icon-btn" data-close aria-label="Cerrar">${icon('x')}</button></div>
       <div class="modal-body">${body}</div>
-      <div class="modal-foot"><button type="button" class="btn ghost" data-close>${cancel}</button>
+      <div class="modal-foot">${cancel ? `<button type="button" class="btn ghost" data-close>${cancel}</button>` : ''}
       <button type="submit" class="btn ${danger ? 'danger' : ''}">${submit}</button></div>`;
     form.onsubmit = async e => {
       e.preventDefault();
@@ -185,10 +186,12 @@
     { id: 'signos', label: 'Signos', title: 'Signos vitales', icon: 'activity', render: renderVitals, fab: () => vitalForm() },
     { id: 'medicamentos', label: 'Medicinas', title: 'Medicamentos', icon: 'pill', render: renderMeds, fab: () => medForm() },
     { id: 'agenda', label: 'Agenda', title: 'Agenda médica', icon: 'calendar', render: renderAgenda, fab: () => apptForm(null, state.calSel) },
+    { id: 'analisis', label: 'Análisis', title: 'Análisis de laboratorio', icon: 'flask', render: renderLabs, after: () => labsAfter(), fab: () => labChooser() },
     { id: 'reportes', label: 'Reportes', title: 'Reportes', icon: 'report', render: renderReports },
     { id: 'ajustes', label: 'Ajustes', title: 'Ajustes', icon: 'settings', render: renderSettings },
     { id: 'ficha', label: 'Ficha', title: 'Mi ficha médica', icon: 'user', render: renderFicha, after: () => fichaAfter(), nav: false }
   ];
+  const routeById = id => ROUTES.find(r => r.id === id);
   function parseHash() {
     const h = location.hash.replace(/^#\/?/, '');
     const [path, qs] = h.split('?');
@@ -294,7 +297,7 @@
       </div>
     </div>`;
   }
-  ROUTES[0].after = () => drawBPChart($('[data-chart="home"]'), state.vitals.filter(v => v.date > addDays(today(), -14)), 220);
+  routeById('inicio').after = () => drawBPChart($('[data-chart="home"]'), state.vitals.filter(v => v.date > addDays(today(), -14)), 220);
 
   function drawBPChart(el, vitals, height) {
     if (!el) return;
@@ -330,7 +333,7 @@
       </div>
     </div>`;
   }
-  ROUTES[1].after = () => {
+  routeById('signos').after = () => {
     const r = state.vitalsRange;
     drawBPChart($('[data-chart="vitals"]'), r ? state.vitals.filter(v => v.date > addDays(today(), -r)) : state.vitals, 260);
   };
@@ -706,6 +709,7 @@
         ${a.notes ? `<div class="item-sub">${esc(a.notes)}</div>` : ''}</div>
       <div class="item-actions">
         ${!a.done ? `<button class="icon-btn" data-act="appt-done" data-id="${a.id}" title="Marcar como realizada" aria-label="Realizada">${icon('check')}</button>` : ''}
+        ${a.type === 'examen' && (a.done || past) ? `<button class="icon-btn" data-act="appt-results" data-id="${a.id}" title="Registrar resultados" aria-label="Registrar resultados" style="color:var(--pulse)">${icon('flask')}</button>` : ''}
         <button class="icon-btn hide-mobile" data-act="appt-ics" data-id="${a.id}" title="Añadir a calendario" aria-label="Añadir a calendario">${icon('calPlus')}</button>
         <button class="icon-btn" data-act="edit-appt" data-id="${a.id}" aria-label="Editar">${icon('edit')}</button>
         <button class="icon-btn danger" data-act="del-appt" data-id="${a.id}" aria-label="Eliminar">${icon('trash')}</button></div>
@@ -894,6 +898,7 @@
           <label class="field"><span>Hasta</span><input type="date" data-rdate="to" value="${r.to}" min="${r.from}"></label>
         </div>
         <label class="check" style="margin-top:12px"><input type="checkbox" data-rmeds ${r.meds ? 'checked' : ''}> Incluir adherencia a medicamentos</label>
+        <label class="check" style="margin-top:8px"><input type="checkbox" data-rlabs ${r.labs !== false ? 'checked' : ''}> Incluir análisis de laboratorio del periodo${labsInRange(r).length ? ` (${labsInRange(r).length})` : ''}</label>
         <div class="report-actions">
           <button class="btn" data-act="pdf" ${list.length ? '' : 'disabled'}>${icon('file')} ${isMobile() ? 'Generar PDF' : 'Descargar PDF'}</button>
           <button class="btn outline" data-act="csv" ${list.length ? '' : 'disabled'}>${icon('download')} Excel (CSV)</button>
@@ -947,7 +952,7 @@
       </div>
     </div>`;
   }
-  ROUTES[4].after = () => {
+  routeById('reportes').after = () => {
     if (window.ReportPDF) ReportPDF.load().catch(() => {});
     const el = $('[data-chart="report"]');
     if (el) drawBPChart(el, reportData().list, 280);
@@ -959,6 +964,8 @@
     });
     const mc = $('[data-rmeds]');
     if (mc) mc.onchange = () => { state.report.meds = mc.checked; render(); };
+    const lc = $('[data-rlabs]');
+    if (lc) lc.onchange = () => { state.report.labs = lc.checked; render(); };
   };
 
   function ageFrom(birth) {
@@ -968,6 +975,8 @@
     if (n.getMonth() < b.getMonth() || (n.getMonth() === b.getMonth() && n.getDate() < b.getDate())) a--;
     return a >= 0 && a < 130 ? `${a} años` : '';
   }
+
+  const labsInRange = r => state.labs.filter(l => l.date >= r.from && l.date <= r.to);
 
   function pdfData() {
     const r = state.report, s = state.settings;
@@ -991,6 +1000,10 @@
       adherence: ad && ad.scheduled ? ad : null,
       meds: ad ? ad.per.map(p => ({ name: p.med.name, dose: doseLabel(p.med),
         schedule: schedLabel(p.med), taken: p.taken, scheduled: p.scheduled, pct: Math.round(p.taken * 100 / p.scheduled) })) : [],
+      labs: r.labs !== false ? labsInRange(r).slice().reverse().map(l => ({
+        title: [cap(fmtDate(l.date, { day: 'numeric', month: 'long', year: 'numeric' })), l.lab, l.folio && 'Folio ' + l.folio].filter(Boolean).join(' · '),
+        items: (l.items || []).map(it => ({ name: it.name, value: it.value, unit: it.unit || '', ref: refLabel(it), flag: labFlag(it) }))
+      })) : [],
       list: list.map(v => ({
         ts: +vitalTime(v), time: v.time, sys: v.sys, dia: v.dia, pulse: v.pulse, cat: bpCategory(v.sys, v.dia),
         dateLabel: cap(fmtDate(v.date, { weekday: 'short' })).replace('.', '') + ' ' + fmtDate(v.date, { day: '2-digit', month: '2-digit', year: 'numeric' }),
@@ -1029,6 +1042,269 @@
       rows.push([v.date, v.time, v.sys, v.dia, v.pulse, c ? c.label : '', v.temp, v.spo2, v.glucose, v.weight, v.arm, v.position, v.notes]);
     }
     return '\uFEFF' + rows.map(r => r.map(q).join(';')).join('\r\n');
+  }
+
+  // ======================================================
+  //  ANÁLISIS DE LABORATORIO
+  // ======================================================
+  const labKey = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  const LAB_FLAG = {
+    high: { label: 'Alto', color: 'var(--danger)', ic: 'trend' },
+    low: { label: 'Bajo', color: 'var(--bp-low)', ic: 'trend' },
+    ok: { label: 'Normal', color: 'var(--ok)', ic: 'check' }
+  };
+  function labFlag(it) {
+    const v = parseFloat(String(it.value).replace(',', '.').replace(/[<>\s]/g, ''));
+    if (isNaN(v) || (it.low == null && it.high == null)) return null;
+    if (it.low != null && v < it.low) return 'low';
+    if (it.high != null && v > it.high) return 'high';
+    return 'ok';
+  }
+  const fmtN = n => n == null || n === '' ? '' : String(n).replace(/\.0+$/, '');
+  function refLabel(it) {
+    if (it.low != null && it.high != null) return `${fmtN(it.low)} – ${fmtN(it.high)}`;
+    if (it.high != null) return `< ${fmtN(it.high)}`;
+    if (it.low != null) return `> ${fmtN(it.low)}`;
+    return it.refText || '—';
+  }
+  const flagChip = f => f ? `<span class="chip" style="color:${LAB_FLAG[f].color};background:color-mix(in srgb, ${LAB_FLAG[f].color} 13%, transparent)"><span class="dot"></span>${LAB_FLAG[f].label}</span>` : '';
+
+  // Último valor de cada parámetro + historial
+  function labParams() {
+    const map = new Map();
+    for (const lab of state.labs.slice().sort((a, b) => a.date.localeCompare(b.date))) {
+      for (const it of lab.items || []) {
+        const k = labKey(it.name);
+        if (!k) continue;
+        const p = map.get(k) || { key: k, name: it.name, history: [] };
+        p.name = it.name; p.last = it; p.lastDate = lab.date; p.group = it.group;
+        p.history.push({ date: lab.date, value: it.value, unit: it.unit, low: it.low, high: it.high, flag: labFlag(it), labId: lab.id });
+        map.set(k, p);
+      }
+    }
+    return [...map.values()].sort((a, b) => a.name.localeCompare(b.name, 'es'));
+  }
+
+  function renderLabs() {
+    const labs = state.labs;
+    const actions = `<div class="row">
+      <label class="btn">${icon('upload')} Importar PDF<input type="file" accept="application/pdf,.pdf" data-lab-file hidden></label>
+      <button class="btn outline" data-act="lab-manual">${icon('edit')} Captura manual</button></div>`;
+    if (!labs.length) {
+      return `<div class="stack-v">
+        <div class="card">${emptyState('flask', 'Aún no tienes análisis registrados.<br>Importa el PDF de tu laboratorio o captura los valores a mano.', `<div style="margin-top:14px;display:flex;justify-content:center">${actions}</div>`)}</div>
+        <p class="small muted" style="margin:0">${icon('lock', '').replace('class="ic ', 'style="width:14px;height:14px;vertical-align:-2px" class="ic ')} El PDF se lee en tu dispositivo; no se sube a ningún servidor. Solo se guardan los valores en tu cuenta.</p></div>`;
+    }
+    const last = labs[0];
+    const lastOut = (last.items || []).filter(it => ['high', 'low'].includes(labFlag(it)));
+    const params = labParams();
+    const q = state.labQuery || '';
+    const shown = q ? params.filter(p => labKey(p.name).includes(labKey(q))) : params;
+    return `
+    <div class="stack-v">
+      <div class="row between"><div class="small muted">${labs.length} estudio${labs.length === 1 ? '' : 's'} · ${params.length} parámetros</div>${actions}</div>
+      <div class="card">
+        <div class="card-head"><h3>${icon('flask')} Último análisis</h3><span class="chip">${cap(fmtDate(last.date, { day: 'numeric', month: 'short', year: 'numeric' }))}</span></div>
+        <div class="small muted">${esc([last.lab, last.doctor && 'Solicitó: ' + last.doctor].filter(Boolean).join(' · ') || 'Sin laboratorio')} · ${(last.items || []).length} parámetros</div>
+        ${lastOut.length ? `<div class="row" style="gap:6px;margin-top:10px">${lastOut.map(it => `<span class="chip" style="color:${LAB_FLAG[labFlag(it)].color};background:color-mix(in srgb, ${LAB_FLAG[labFlag(it)].color} 13%, transparent)">${esc(it.name)}: ${esc(it.value)} ${esc(it.unit)} · ${LAB_FLAG[labFlag(it)].label}</span>`).join('')}</div>`
+          : `<div class="small" style="margin-top:10px;color:var(--ok)">${icon('check', '').replace('class="ic ', 'style="width:14px;height:14px;vertical-align:-2px" class="ic ')} Todos los valores dentro del rango de referencia.</div>`}
+        <div class="row" style="margin-top:12px"><button class="btn ghost small" data-act="lab-view" data-id="${last.id}">${icon('list')} Ver resultados completos</button></div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><h3>${icon('trend')} Parámetros</h3>
+          <input type="search" data-lab-q placeholder="Buscar (glucosa, colesterol…)" value="${esc(q)}" style="max-width:260px;min-height:38px"></div>
+        <div class="list">${shown.map(p => {
+          const f = labFlag(p.last), h = p.history, prev = h.length > 1 ? h[h.length - 2] : null;
+          const cur = parseFloat(String(p.last.value).replace(',', '.')), pv = prev ? parseFloat(String(prev.value).replace(',', '.')) : NaN;
+          const delta = prev && !isNaN(cur) && !isNaN(pv) ? cur - pv : null;
+          return `<button class="item lab-param" data-act="lab-param" data-k="${esc(p.key)}">
+            <div class="item-body"><div class="item-title">${esc(p.name)}</div>
+              <div class="item-sub">${esc(refLabel(p.last))} ${esc(p.last.unit || '')} · ${fmtDate(p.lastDate, { day: 'numeric', month: 'short', year: '2-digit' })}${h.length > 1 ? ` · ${h.length} mediciones` : ''}</div></div>
+            <div style="text-align:right;flex:none"><div class="bp-val" style="font-size:1.05rem">${esc(p.last.value)} <span class="small muted" style="font-weight:500">${esc(p.last.unit || '')}</span></div>
+              <div class="row" style="gap:6px;justify-content:flex-end">${delta != null && delta !== 0 ? `<span class="small muted">${delta > 0 ? '▲' : '▼'} ${fmtN(Math.abs(Math.round(delta * 100) / 100))}</span>` : ''}${flagChip(f)}</div></div>
+          </button>`;
+        }).join('') || '<div class="small muted">Sin coincidencias.</div>'}</div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><h3>${icon('file')} Estudios</h3></div>
+        <div class="list">${labs.map(l => {
+          const out = (l.items || []).filter(it => ['high', 'low'].includes(labFlag(it))).length;
+          return `<div class="item">
+            <div class="item-ic" style="background:color-mix(in srgb, var(--pulse) 14%, transparent);color:var(--pulse)">${icon('flask')}</div>
+            <div class="item-body"><div class="item-title">${cap(fmtDate(l.date, { day: 'numeric', month: 'long', year: 'numeric' }))}</div>
+              <div class="item-sub">${esc([l.lab, l.folio && 'Folio ' + l.folio].filter(Boolean).join(' · ') || 'Laboratorio')} · ${(l.items || []).length} parámetros${out ? ` · <span style="color:var(--danger)">${out} fuera de rango</span>` : ''}</div></div>
+            <div class="item-actions">
+              <button class="icon-btn" data-act="lab-view" data-id="${l.id}" title="Ver" aria-label="Ver">${icon('eye')}</button>
+              <button class="icon-btn" data-act="lab-edit" data-id="${l.id}" title="Editar" aria-label="Editar">${icon('edit')}</button>
+              <button class="icon-btn danger" data-act="lab-del" data-id="${l.id}" title="Eliminar" aria-label="Eliminar">${icon('trash')}</button></div>
+          </div>`;
+        }).join('')}</div>
+      </div>
+      <p class="small muted" style="margin:0">Los rangos de referencia son los que indica cada laboratorio. La interpretación de tus resultados corresponde a tu médico.</p>
+    </div>`;
+  }
+
+  function labsAfter() {
+    const f = $('[data-lab-file]');
+    if (f) f.onchange = () => { const file = f.files[0]; f.value = ''; if (file) importLabPdf(file); };
+    const q = $('[data-lab-q]');
+    if (q) q.oninput = () => {
+      state.labQuery = q.value;
+      const pos = q.selectionStart;
+      render();
+      const n = $('[data-lab-q]'); n.focus(); try { n.setSelectionRange(pos, pos); } catch (_) {}
+    };
+  }
+
+  async function importLabPdf(file, extra) {
+    if (!/pdf$/i.test(file.type) && !/\.pdf$/i.test(file.name)) { toast('Selecciona un archivo PDF'); return; }
+    toast('Leyendo el PDF…', 'file');
+    try {
+      const lines = await LabImport.extractLines(file);
+      const age = parseInt(ageFrom(state.settings.birth), 10);
+      const { meta, items } = LabImport.parse(lines, isNaN(age) ? null : age);
+      if (!items.length) {
+        toast('No se reconocieron resultados en el PDF; captúralos manualmente');
+        return labForm(Object.assign({ date: meta.date, folio: meta.folio, doctor: meta.doctor, items: [] }, extra), { source: 'manual' });
+      }
+      labForm(Object.assign({ date: meta.date || today(), folio: meta.folio, doctor: meta.doctor, lab: '', items }, extra), { source: 'pdf', fileName: file.name });
+    } catch (e) { console.error(e); toast(e.message || 'No se pudo leer el PDF'); }
+  }
+
+  function labRow(it, i) {
+    const f = labFlag(it);
+    return `<div class="lab-row" data-i="${i}" data-group="${esc(it.group || '')}" data-reftext="${esc(it.refText || '')}">
+      <input class="lab-name" placeholder="Parámetro (ej. Glucosa)" value="${esc(it.name)}" aria-label="Parámetro">
+      <input class="lab-val" placeholder="Valor" value="${esc(it.value)}" inputmode="decimal" aria-label="Valor">
+      <input class="lab-unit" placeholder="Unidad" value="${esc(it.unit)}" aria-label="Unidad">
+      <input class="lab-low" placeholder="Mín" value="${esc(fmtN(it.low))}" inputmode="decimal" aria-label="Referencia mínima">
+      <input class="lab-high" placeholder="Máx" value="${esc(fmtN(it.high))}" inputmode="decimal" aria-label="Referencia máxima">
+      <span class="lab-flag">${flagChip(f)}</span>
+      <button type="button" class="icon-btn danger" data-rm-row aria-label="Quitar parámetro">${icon('x')}</button>
+    </div>`;
+  }
+
+  function labForm(lab, opts = {}) {
+    const isNew = !lab.id;
+    const dup = isNew && state.labs.find(l => (lab.folio && l.folio === lab.folio) || (l.date === lab.date && (l.items || []).length === (lab.items || []).length));
+    const items = (lab.items || []).length ? lab.items : [{ name: '', value: '', unit: '', low: null, high: null }];
+    modal({
+      title: opts.source === 'pdf' ? 'Revisar resultados' : isNew ? 'Nuevo análisis' : 'Editar análisis',
+      submit: 'Guardar análisis',
+      body: `
+        ${opts.source === 'pdf' ? `<div class="banner">${icon('info')}<div class="small">Se leyeron <b>${items.length} parámetros</b> de <i>${esc(opts.fileName || 'tu PDF')}</i>. Revisa que coincidan con el documento y corrige lo necesario antes de guardar.</div></div>` : ''}
+        ${dup ? `<div class="banner warn">${icon('alert')}<div class="small">Ya tienes un análisis del ${fmtDate(dup.date, { day: 'numeric', month: 'long' })}${dup.folio ? ' con folio ' + esc(dup.folio) : ''}. Si es el mismo, cancela para no duplicarlo.</div></div>` : ''}
+        <div class="fields">
+          <label class="field"><span>Fecha de la muestra</span><input type="date" name="date" required max="${today()}" value="${esc(lab.date || today())}"></label>
+          <label class="field"><span>Laboratorio</span><input name="lab" value="${esc(lab.lab)}" placeholder="Ej. Laboratorio Chopo"></label>
+        </div>
+        <div class="fields">
+          <label class="field"><span>Folio</span><input name="folio" value="${esc(lab.folio)}"></label>
+          <label class="field"><span>Médico que lo solicitó</span><input name="doctor" value="${esc(lab.doctor)}"></label>
+        </div>
+        <div class="form-section">Resultados</div>
+        <div class="lab-head small muted"><span>Parámetro</span><span>Valor</span><span>Unidad</span><span>Mín</span><span>Máx</span></div>
+        <div id="labRows">${items.map(labRow).join('')}</div>
+        <button type="button" class="btn outline small" data-add-row>${icon('plus')} Agregar parámetro</button>
+        <label class="field"><span>Notas</span><textarea name="notes" placeholder="Ej. en ayuno de 12 h">${esc(lab.notes)}</textarea></label>`,
+      onOpen: f => {
+        let n = items.length;
+        f.addEventListener('click', e => {
+          if (e.target.closest('[data-add-row]')) {
+            $('#labRows').insertAdjacentHTML('beforeend', labRow({ name: '', value: '', unit: '' }, n++));
+            $('#labRows .lab-row:last-child .lab-name').focus();
+          }
+          const rm = e.target.closest('[data-rm-row]');
+          if (rm) rm.closest('.lab-row').remove();
+        });
+        f.addEventListener('input', e => {
+          const row = e.target.closest('.lab-row');
+          if (!row) return;
+          const it = readRow(row);
+          $('.lab-flag', row).innerHTML = flagChip(labFlag(it));
+        });
+      },
+      onSubmit: async f => {
+        if (!f.reportValidity()) return false;
+        const rows = $$('#labRows .lab-row', f).map(readRow).filter(it => it.name && it.value !== '');
+        if (!rows.length) { toast('Agrega al menos un resultado'); return false; }
+        const rec = Object.assign({}, lab, {
+          id: lab.id || uid(), date: f.date.value, lab: f.lab.value.trim(), folio: f.folio.value.trim(),
+          doctor: f.doctor.value.trim(), notes: f.notes.value.trim(), items: rows,
+          source: lab.source || opts.source || 'manual', updated: new Date().toISOString()
+        });
+        await DB.put('labs', rec);
+        await load();
+        if (currentRoute !== 'analisis') location.hash = '#/analisis'; else render();
+        const out = rows.filter(it => ['high', 'low'].includes(labFlag(it))).length;
+        toast(`Análisis guardado${out ? ` · ${out} fuera de rango` : ''}`, 'check');
+      }
+    });
+  }
+
+  function readRow(row) {
+    const v = sel => $(sel, row).value.trim();
+    const n = s => s === '' ? null : (isNaN(parseFloat(s.replace(',', '.'))) ? null : parseFloat(s.replace(',', '.')));
+    return { name: v('.lab-name'), value: v('.lab-val'), unit: v('.lab-unit'), low: n(v('.lab-low')), high: n(v('.lab-high')),
+      group: row.dataset.group || '', refText: row.dataset.reftext || '' };
+  }
+
+  function labView(lab) {
+    const groups = new Map();
+    for (const it of lab.items || []) { const g = it.group || 'Resultados'; if (!groups.has(g)) groups.set(g, []); groups.get(g).push(it); }
+    modal({
+      title: cap(fmtDate(lab.date, { day: 'numeric', month: 'long', year: 'numeric' })),
+      submit: 'Editar', cancel: 'Cerrar',
+      body: `<div class="small muted">${esc([lab.lab, lab.folio && 'Folio ' + lab.folio, lab.doctor && 'Solicitó: ' + lab.doctor].filter(Boolean).join(' · '))}</div>
+        ${[...groups].map(([g, its]) => `<div class="form-section">${esc(cap(g.toLowerCase()))}</div>
+          <div class="list">${its.map(it => `<div class="item" style="padding:9px 0"><div class="item-body"><div class="item-title" style="font-weight:600">${esc(it.name)}</div>
+            <div class="item-sub">Referencia: ${esc(refLabel(it))} ${esc(it.unit || '')}</div></div>
+            <div style="text-align:right"><b class="num">${esc(it.value)}</b> <span class="small muted">${esc(it.unit || '')}</span><div>${flagChip(labFlag(it))}</div></div></div>`).join('')}</div>`).join('')}
+        ${lab.notes ? `<div class="small"><b>Notas:</b> ${esc(lab.notes)}</div>` : ''}`,
+      onSubmit: () => { setTimeout(() => labForm(lab), 0); }
+    });
+  }
+
+  function labParamView(key) {
+    const p = labParams().find(x => x.key === key);
+    if (!p) return;
+    modal({
+      title: esc(p.name), submit: 'Cerrar', cancel: null,
+      body: `<div class="small muted">Referencia actual: ${esc(refLabel(p.last))} ${esc(p.last.unit || '')}</div>
+        <div id="labChart"></div>
+        <div class="list">${p.history.slice().reverse().map(h => `<div class="item" style="padding:9px 0">
+          <div class="item-body"><div class="item-title" style="font-weight:600">${cap(fmtDate(h.date, { day: 'numeric', month: 'long', year: 'numeric' }))}</div></div>
+          <b class="num">${esc(h.value)}</b> <span class="small muted">${esc(h.unit || '')}</span> ${flagChip(h.flag)}</div>`).join('')}</div>`,
+      onOpen: () => {
+        const pts = p.history.map(h => ({ x: at(h.date), y: parseFloat(String(h.value).replace(',', '.')) })).filter(pt => !isNaN(pt.y));
+        const el = $('#labChart');
+        if (pts.length < 2) { el.innerHTML = `<div class="small muted" style="padding:10px 0">La gráfica aparecerá cuando tengas al menos dos mediciones de este parámetro.</div>`; return; }
+        const band = p.last.low != null && p.last.high != null ? [{ from: p.last.low, to: p.last.high, color: 'var(--bp-normal)' }] : [];
+        el.innerHTML = Charts.lineChart({ width: el.clientWidth || 480, height: 200, label: p.name, bands: band,
+          series: [{ name: p.name, color: 'var(--primary)', points: pts }] });
+      },
+      onSubmit: () => {}
+    });
+  }
+
+  // Selector desde la Agenda o el botón "+": importar PDF o capturar
+  function labChooser(extra = {}) {
+    modal({
+      title: 'Registrar resultados', submit: 'Captura manual', cancel: 'Cancelar',
+      body: `<p class="small muted" style="margin-top:0">Importa el PDF que te dio el laboratorio (se lee en tu dispositivo) o captura los valores a mano.</p>
+        <label class="btn block" style="min-height:56px">${icon('upload')} Importar PDF del laboratorio<input type="file" accept="application/pdf,.pdf" id="labChooserFile" hidden></label>`,
+      onOpen: f => {
+        $('#labChooserFile', f).onchange = e => {
+          const file = e.target.files[0];
+          if (!file) return;
+          $('#modal').close();
+          importLabPdf(file, extra);
+        };
+      },
+      onSubmit: () => { setTimeout(() => labForm(Object.assign({ items: [] }, extra), { source: 'manual' }), 0); }
+    });
   }
 
   // ======================================================
@@ -1163,6 +1439,7 @@
           ${p.meds.length ? `<div class="list">${p.meds.map(m => `<div class="item"><div class="item-body"><div class="item-title">${esc(m.name)}</div>
             <div class="item-sub">${esc([doseLabel(m), schedLabel(m)].filter(Boolean).join(' · '))}</div></div></div>`).join('')}</div>` : '<div class="small muted">Sin medicamentos activos.</div>'}</div>
 
+        ${fichaLabsCard()}
         <div class="card"><div class="card-head"><h3>${icon('user')} Contacto de emergencia</h3></div>
           ${s.emName || s.emPhone ? `<div class="row" style="flex-wrap:nowrap">
             <div class="item-body"><div class="item-title">${esc(s.emName || 'Contacto')}</div><div class="item-sub">${esc([s.emRel, s.emPhone].filter(Boolean).join(' · '))}</div></div>
@@ -1181,6 +1458,17 @@
       </div>
       <p class="small muted" style="margin:0">${icon('lock', '').replace('class="ic ', 'style="width:14px;height:14px;vertical-align:-2px" class="ic ')} Tu ficha se guarda en tu cuenta y solo tú puedes verla. La CURP y el NSS se muestran ocultos en pantalla; en el PDF aparecen completos.</p>
     </div>`;
+  }
+
+  function fichaLabsCard() {
+    const last = state.labs[0];
+    if (!last) return `<div class="card"><div class="card-head"><h3>${icon('flask')} Análisis de laboratorio</h3><a href="#/analisis" class="small">Agregar</a></div>
+      <div class="small muted">Aún no has registrado análisis.</div></div>`;
+    const out = (last.items || []).filter(it => ['high', 'low'].includes(labFlag(it)));
+    return `<div class="card"><div class="card-head"><h3>${icon('flask')} Último análisis</h3><a href="#/analisis" class="small">Ver todos</a></div>
+      <div class="small muted" style="margin-bottom:8px">${cap(fmtDate(last.date, { day: 'numeric', month: 'long', year: 'numeric' }))}${last.lab ? ' · ' + esc(last.lab) : ''} · ${(last.items || []).length} parámetros</div>
+      ${out.length ? `<div class="row" style="gap:6px">${out.map(it => `<span class="chip" style="color:${LAB_FLAG[labFlag(it)].color};background:color-mix(in srgb, ${LAB_FLAG[labFlag(it)].color} 13%, transparent)">${esc(it.name)} ${esc(it.value)} · ${LAB_FLAG[labFlag(it)].label}</span>`).join('')}</div>`
+        : '<div class="small" style="color:var(--ok)">Todos los valores dentro de referencia.</div>'}</div>`;
   }
 
   function fichaAfter() {
@@ -1393,7 +1681,7 @@
       </div>
     </div>`;
   }
-  ROUTES[5].after = () => {
+  routeById('ajustes').after = () => {
     $$('[data-set]').forEach(i => i.onchange = async () => { state.settings[i.dataset.set] = i.checked; await saveSettings(); toast('Guardado', 'check'); });
     $$('[data-set-text]').forEach(i => i.onchange = async () => { state.settings[i.dataset.setText] = i.value.trim(); await saveSettings(); toast('Guardado', 'check'); });
     const box = $('#bpTimes');
@@ -1472,6 +1760,20 @@
       if (await confirmDlg('Eliminar evento', '¿Eliminar esta cita o examen?')) { await DB.del('appts', el.dataset.id); await load(); render(); toast('Eliminado'); }
     },
     'appt-done': async el => { const a = state.appts.find(x => x.id === el.dataset.id); a.done = true; await DB.put('appts', a); await load(); render(); toast('Marcada como realizada', 'check'); },
+    'appt-results': el => {
+      const a = state.appts.find(x => x.id === el.dataset.id);
+      labChooser({ date: a.date <= today() ? a.date : today(), lab: a.place || a.doctor || '', apptId: a.id });
+    },
+    'lab-manual': () => labForm({ items: [] }, { source: 'manual' }),
+    'lab-view': el => labView(state.labs.find(l => l.id === el.dataset.id)),
+    'lab-edit': el => labForm(state.labs.find(l => l.id === el.dataset.id)),
+    'lab-del': async el => {
+      const l = state.labs.find(x => x.id === el.dataset.id);
+      if (await confirmDlg('Eliminar análisis', `¿Eliminar el análisis del ${fmtDate(l.date, { day: 'numeric', month: 'long', year: 'numeric' })} con ${(l.items || []).length} resultados?`)) {
+        await DB.del('labs', l.id); await load(); render(); toast('Análisis eliminado');
+      }
+    },
+    'lab-param': el => labParamView(el.dataset.k),
     'appt-ics': el => { const a = state.appts.find(x => x.id === el.dataset.id); download(`cita-${a.date}.ics`, icsWrap([apptEvent(a)]), 'text/calendar'); },
     'appts-ics': () => {
       const nowKey = today() + 'T' + timeKey(new Date());
@@ -1559,7 +1861,7 @@
     },
     wipe: async () => {
       if (!(await confirmDlg('Borrar todo', `Se eliminarán <b>todos</b> tus registros, medicamentos, citas y ajustes ${Cloud.user ? 'de tu cuenta y de <b>todos tus dispositivos</b>' : 'de este dispositivo'}. Esta acción no se puede deshacer.`, 'Borrar todo'))) return;
-      for (const s of ['vitals', 'meds', 'intakes', 'appts', 'kv']) await DB.clear(s);
+      for (const s of ['vitals', 'meds', 'intakes', 'appts', 'labs', 'kv']) await DB.clear(s);
       await load(); render(); toast('Datos eliminados');
     }
   };

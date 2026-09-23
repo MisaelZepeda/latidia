@@ -176,6 +176,28 @@
       }) + 8;
     }
 
+    // ---------- Análisis de laboratorio ----------
+    const LAB_RGB = { high: [220, 38, 38], low: [2, 132, 199], ok: [22, 163, 74] };
+    const LAB_TXT = { high: 'Alto', low: 'Bajo', ok: 'Normal' };
+    (R.labs || []).forEach((lab, i) => {
+      section(i === 0 ? 'Análisis de laboratorio' : 'Análisis de laboratorio (cont.)');
+      font(9, 'bold', C.muted); doc.text(L(lab.title), M, y); y += 2.5;
+      y = autoTable({
+        startY: y, margin: { left: M, right: M, bottom: 22 },
+        head: [['Parámetro', 'Resultado', 'Unidad', 'Referencia', 'Estado']],
+        body: lab.items.map(it => [L(it.name), L(it.value), L(it.unit), L(it.ref), it.flag ? LAB_TXT[it.flag] : '-']),
+        theme: 'striped', styles: { font: 'helvetica', fontSize: 8.5, cellPadding: 1.7, textColor: C.text },
+        headStyles: { fillColor: C.primary, textColor: 255 }, alternateRowStyles: { fillColor: C.zebra },
+        columnStyles: { 1: { halign: 'center', fontStyle: 'bold' }, 2: { cellWidth: 20 }, 3: { cellWidth: 34 }, 4: { cellWidth: 20, halign: 'center' } },
+        didParseCell: d => {
+          if (d.section !== 'body') return;
+          const f = lab.items[d.row.index].flag;
+          if ((d.column.index === 4 || d.column.index === 1) && f && f !== 'ok') { d.cell.styles.textColor = LAB_RGB[f]; d.cell.styles.fontStyle = 'bold'; }
+          if (d.column.index === 4 && f === 'ok') d.cell.styles.textColor = LAB_RGB.ok;
+        }
+      }) + 8;
+    });
+
     // ---------- Detalle ----------
     section('Detalle de tomas');
     autoTable({
