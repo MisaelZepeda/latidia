@@ -53,11 +53,12 @@ Sin configurar, la app funciona en **modo local** (datos solo en el dispositivo)
 
 ## Cómo funcionan las notificaciones
 
-GitHub Pages solo sirve archivos estáticos, así que no hay un servidor que envíe notificaciones push. La app revisa los recordatorios desde el propio dispositivo:
-
-- **App abierta o minimizada** (celular o computadora): los avisos llegan a su hora. Las notificaciones de medicamentos incluyen botones **✔ Tomada** y **⏰ 10 min**.
-- **App cerrada:** en Chrome/Edge con la app instalada se usa *Periodic Background Sync*, pero el navegador decide cuándo ejecutarla (no es exacta).
-- **Para alarmas garantizadas aunque la app esté cerrada**, usa **Añadir a calendario** (Medicamentos) y **Exportar citas** (Agenda). Se descarga un archivo `.ics` con eventos repetitivos y alarmas que tu calendario (Google, Outlook, iCloud) hará sonar siempre.
+- **Con la app cerrada:** un servidor propio en **Cloudflare Workers (plan gratuito)** envía notificaciones **Web Push** a cada dispositivo aunque Latidia esté cerrada (iPhone con iOS 16.4+ y la app instalada en la pantalla de inicio; Android; Windows/Mac). Se activa en **Ajustes → Avisos con la app cerrada**.
+  - La app envía al servidor (con la sesión de Firebase) los recordatorios de los próximos 14 días; se renuevan cada vez que se abre la app.
+  - "✔ Tomada" y "⏰ 10 min" funcionan desde la notificación; si una dosis no se marca, llega un segundo aviso a los 30 min (configurable).
+  - Código en [`push-worker/`](push-worker/). Publicar cambios: `cd push-worker && npx wrangler deploy`. La clave VAPID privada vive solo como secreto en Cloudflare (`npx wrangler secret put VAPID_PRIVATE_JWK`).
+- **Sin servidor** (o sin conexión) la app usa avisos locales mientras está abierta o minimizada.
+- **Respaldo:** "Añadir a calendario" (Medicamentos y Agenda) crea alarmas en el calendario del teléfono.
 
 ## Privacidad y datos
 

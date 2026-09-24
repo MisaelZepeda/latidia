@@ -1,7 +1,7 @@
 /* Latidia — service worker: caché offline + notificaciones */
 importScripts('js/core.js');
 
-const CACHE = 'latidia-v9';
+const CACHE = 'latidia-v10';
 // Librerías externas versionadas (no cambian): caché primero
 const CDN = ['https://www.gstatic.com/firebasejs/', 'https://cdn.jsdelivr.net/npm/'];
 const ASSETS = [
@@ -11,6 +11,7 @@ const ASSETS = [
   'css/styles.css',
   'js/core.js',
   'js/firebase-config.js',
+  'js/push-config.js',
   'js/cloud.js',
   'js/icons.js',
   'js/chart.js',
@@ -68,14 +69,35 @@ self.addEventListener('message', e => {
   if (e.data === 'check-reminders') e.waitUntil(MS.runReminders(self.registration));
 });
 
-// Push (por si en el futuro se conecta un servidor de notificaciones)
+// Notificaciones del servidor (llegan aunque la app esté cerrada)
 self.addEventListener('push', e => {
   let d = {};
-  try { d = e.data ? e.data.json() : {}; } catch (_) { d = { body: e.data && e.data.text() }; }
-  e.waitUntil(self.registration.showNotification(d.title || 'Latidia', {
-    body: d.body || '', icon: 'icons/icon-192.png', badge: 'icons/badge-96.png', data: d.data || {}
-  }).then(() => MS.runReminders(self.registration)));
+  try { d = e.data ? e.data.json() : {}; } catch (_) { d = { title: 'Latidia', body: e.data && e.data.text() }; }
+  e.waitUntil((async () => {
+    await self.registration.showNotification(d.title || 'Latidia', {
+      body: d.body || '', tag: d.tag || undefined, data: d.data || {}, actions: d.actions || [],
+      requireInteraction: !!d.requireInteraction, renotify: !!d.tag,
+      icon: 'icons/icon-192.png', badge: 'icons/badge-96.png', vibrate: [200, 100, 200]
+    });
+    try {
+      if (d.tag) await MS.markSent([d.tag]);   // evita que el aviso local lo repita
+      await MS.logNotifications([{ title: d.title || 'Latidia', body: d.body || '', data: d.data }]);
+    } catch (_) {}
+  })());
 });
+
+// Avisa al servidor desde el service worker (sin sesión: usa el secreto del dispositivo)
+async function deviceAction(payload) {
+  const cfg = await MS.DB.getKV('pushCfg', null);
+  if (!cfg) return false;
+  try {
+    const r = await fetch(cfg.url + '/device-action', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(Object.assign({ uid: cfg.uid, deviceId: cfg.deviceId, secret: cfg.secret }, payload))
+    });
+    return r.ok;
+  } catch (_) { return false; }
+}
 
 self.addEventListener('notificationclick', e => {
   const n = e.notification;
@@ -88,12 +110,15 @@ self.addEventListener('notificationclick', e => {
       const box = await MS.DB.getKV('outbox', []);
       box.push({ store: 'intakes', id: data.key });
       await MS.DB.setKV('outbox', box);
+      await deviceAction({ action: 'done', id: 'med:' + data.key }); // cancela el recordatorio repetido
       await broadcast({ type: 'data-changed' });
       return;
     }
     if (e.action === 'snooze') {
-      await MS.snooze({ tag: n.tag, title: n.title, body: n.body, data,
-        actions: Array.from(n.actions || []).map(x => ({ action: x.action, title: x.title })) }, 10);
+      const actions = Array.from(n.actions || []).map(x => ({ action: x.action, title: x.title }));
+      const viaServer = (await MS.serverPushActive()) &&
+        await deviceAction({ action: 'snooze', id: n.tag, minutes: 10, title: n.title, body: n.body, data, actions });
+      if (!viaServer) await MS.snooze({ tag: n.tag, title: n.title, body: n.body, data, actions }, 10);
       return;
     }
     const url = new URL(data.url || './', self.registration.scope).href;

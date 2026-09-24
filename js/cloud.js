@@ -152,7 +152,7 @@
 
   async function wipeLocal() {
     for (const s of STORES) await local.clear(s);
-    for (const k of ['settings', 'owner', 'sent', 'snoozed', 'outbox']) await local.del('kv', k);
+    for (const k of ['settings', 'owner', 'sent', 'snoozed', 'outbox', 'pushActive', 'pushCfg', 'pushDevice', 'pushHash', 'notiflog']) await local.del('kv', k);
   }
 
   // ---------- Autenticación ----------
@@ -180,6 +180,7 @@
     }
   };
 
+  Cloud.idToken = () => Cloud.user ? Cloud.user.getIdToken() : Promise.reject(new Error('Sin sesión'));
   Cloud.signIn = wrap((email, pass) => fb.signInWithEmailAndPassword(auth, email, pass));
   Cloud.signUp = wrap(async (name, email, pass) => {
     const cred = await fb.createUserWithEmailAndPassword(auth, email, pass);

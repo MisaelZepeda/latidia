@@ -150,39 +150,38 @@
 
   // ---------- Recordatorios ----------
   const WINDOW_MS = 60 * 60 * 1000; // una notificación atrasada sigue valiendo hasta 1 h
+  const MED_ACTIONS = [{ action: 'taken', title: '✔ Tomada' }, { action: 'snooze', title: '⏰ 10 min' }];
 
-  async function computeDue(now) {
-    now = now || new Date();
+  // Todos los recordatorios programados entre dos momentos (Date): [{tag, when, title, body, data, actions}]
+  async function remindersBetween(from, to) {
     const settings = await DB.getKV('settings', {});
     if (settings.notify === false) return [];
     const [meds, intakes, appts] = await Promise.all([DB.all('meds'), DB.all('intakes'), DB.all('appts')]);
-    const sent = await DB.getKV('sent', {});
     const taken = new Set(intakes.map(i => i.id));
-    const due = [];
-    const inWindow = when => when <= now && now - when < WINDOW_MS;
+    const out = [];
+    const inRange = when => when >= from && when <= to;
 
-    // Hoy y ayer (por si la ventana cruza medianoche)
-    const days = [new Date(now.getTime() - 86400000), now].map(dateKey);
-    for (const ds of days) {
+    for (let d = new Date(from.getFullYear(), from.getMonth(), from.getDate()); d <= to; d.setDate(d.getDate() + 1)) {
+      const ds = dateKey(d);
       if (settings.notifyMeds !== false) {
-        for (const d of dosesForDate(meds, ds)) {
-          const tag = 'med:' + d.key;
-          if (sent[tag] || taken.has(d.key) || !inWindow(at(ds, d.time))) continue;
-          due.push({
-            tag,
-            title: `💊 Hora de tu medicamento`,
-            body: `${d.med.name}${d.med.dose ? ' — ' + d.med.dose : ''} (${d.time})`,
-            data: { kind: 'med', key: d.key, medId: d.med.id, date: ds, time: d.time, url: './#/medicamentos' },
-            actions: [{ action: 'taken', title: '✔ Tomada' }, { action: 'snooze', title: '⏰ 10 min' }]
+        for (const x of dosesForDate(meds, ds)) {
+          const when = at(ds, x.time);
+          if (taken.has(x.key) || !inRange(when)) continue;
+          out.push({
+            tag: 'med:' + x.key, when,
+            title: '💊 Hora de tu medicamento',
+            body: `${x.med.name}${x.med.dose ? ' — ' + x.med.dose : ''} (${x.time})`,
+            data: { kind: 'med', key: x.key, medId: x.med.id, date: ds, time: x.time, url: './#/medicamentos' },
+            actions: MED_ACTIONS
           });
         }
       }
       if (settings.notifyBP !== false) {
         for (const t of settings.bpTimes || []) {
-          const tag = `bp:${ds}|${t}`;
-          if (sent[tag] || !inWindow(at(ds, t))) continue;
-          due.push({
-            tag,
+          const when = at(ds, t);
+          if (!inRange(when)) continue;
+          out.push({
+            tag: `bp:${ds}|${t}`, when,
             title: '❤️ Toma tu presión',
             body: `Es momento de registrar tu presión arterial y pulso (${t}).`,
             data: { kind: 'bp', url: './#/signos?nuevo=1' }
@@ -195,16 +194,15 @@
       for (const a of appts) {
         if (a.done) continue;
         const start = at(a.date, a.time || '08:00');
-        const reminders = [Number(a.remind ?? 60)];
-        if (a.remindDayBefore !== false) reminders.push(24 * 60);
-        for (const mins of reminders) {
-          const tag = `appt:${a.id}:${mins}`;
-          const when = new Date(start.getTime() - mins * 60000);
-          if (sent[tag] || !inWindow(when) || now > start) continue;
+        const mins = [Number(a.remind ?? 60)];
+        if (a.remindDayBefore !== false) mins.push(24 * 60);
+        for (const m of mins) {
+          const when = new Date(start.getTime() - m * 60000);
+          if (!inRange(when) || when > start) continue;
           const label = a.type === 'examen' ? '🧪 Examen' : a.type === 'consulta' ? '🩺 Cita médica' : '📅 Evento';
-          const hrs = mins >= 1440 ? 'mañana' : mins >= 60 ? `en ${Math.round(mins / 60)} h` : `en ${mins} min`;
-          due.push({
-            tag,
+          const hrs = m >= 1440 ? 'mañana' : m >= 60 ? `en ${Math.round(m / 60)} h` : m ? `en ${m} min` : 'ahora';
+          out.push({
+            tag: `appt:${a.id}:${m}`, when,
             title: `${label} ${hrs}`,
             body: `${a.title}${a.time ? ' a las ' + a.time : ''}${a.place ? ' — ' + a.place : ''}`,
             data: { kind: 'appt', id: a.id, url: './#/agenda' }
@@ -212,18 +210,44 @@
         }
       }
     }
+    return out.sort((x, y) => x.when - y.when);
+  }
+
+  // Recordatorios que tocan ahora (avisos locales, con la app abierta)
+  async function computeDue(now) {
+    now = now || new Date();
+    const sent = await DB.getKV('sent', {});
+    const due = (await remindersBetween(new Date(now.getTime() - WINDOW_MS), now)).filter(n => !sent[n.tag]);
 
     // Recordatorios pospuestos
+    const intakes = await DB.all('intakes');
+    const taken = new Set(intakes.map(i => i.id));
     const snoozed = await DB.getKV('snoozed', []);
     const keep = [];
     for (const s of snoozed) {
       if (new Date(s.at) <= now) {
-        if (!taken.has(s.data.key)) due.push(Object.assign({}, s, { tag: s.tag + ':s' + s.at }));
+        if (!taken.has(s.data && s.data.key)) due.push(Object.assign({}, s, { tag: s.tag + ':s' + s.at }));
       } else keep.push(s);
     }
     if (keep.length !== snoozed.length) await DB.setKV('snoozed', keep);
-
     return due;
+  }
+
+  // Lista para el servidor de notificaciones (los próximos `days` días)
+  async function pushReminders(days) {
+    const now = Date.now();
+    const settings = await DB.getKV('settings', {});
+    const list = await remindersBetween(new Date(now - 90 * 60000), new Date(now + days * 86400000));
+    return list.map(n => ({
+      id: n.tag, at: n.when.getTime(), title: n.title, body: n.body, data: n.data, actions: n.actions || [],
+      requireInteraction: n.data.kind === 'med', repeatMin: n.data.kind === 'med' && settings.pushRepeat !== false ? 30 : 0
+    }));
+  }
+
+  // Con el servidor activo (sincronizado en las últimas 36 h) no se duplican los avisos locales
+  async function serverPushActive() {
+    const last = await DB.getKV('pushActive', 0);
+    return last && Date.now() - last < 36 * 3600000;
   }
 
   async function markSent(tags) {
@@ -237,6 +261,7 @@
   // Revisa y muestra notificaciones usando el registro del service worker
   async function runReminders(registration) {
     if (!registration || typeof Notification === 'undefined' || Notification.permission !== 'granted') return 0;
+    if (await serverPushActive()) return 0; // el servidor ya envía los recordatorios
     const due = await computeDue(new Date());
     for (const n of due) {
       await registration.showNotification(n.title, {
@@ -253,13 +278,17 @@
     }
     if (due.length) {
       await markSent(due.map(n => n.tag));
-      // Historial local para el centro de notificaciones (últimos 50)
-      const log = await DB.getKV('notiflog', []);
-      const nowIso = new Date().toISOString();
-      for (const n of due) log.unshift({ title: n.title, body: n.body, kind: n.data && n.data.kind, at: nowIso });
-      await DB.setKV('notiflog', log.slice(0, 50));
+      await logNotifications(due);
     }
     return due.length;
+  }
+
+  // Historial local para el centro de notificaciones (últimos 50)
+  async function logNotifications(list) {
+    const log = await DB.getKV('notiflog', []);
+    const nowIso = new Date().toISOString();
+    for (const n of list) log.unshift({ title: n.title, body: n.body, kind: n.data && n.data.kind, at: nowIso });
+    await DB.setKV('notiflog', log.slice(0, 50));
   }
 
   async function markTaken(key, status) {
@@ -274,5 +303,6 @@
     await DB.setKV('snoozed', list);
   }
 
-  g.MS = { DB, pad, dateKey, timeKey, at, uid, medScheduledOn, medTimesOn, nextDoses, isInterval, dosesForDate, bpCategory, computeDue, runReminders, markTaken, snooze };
+  g.MS = { DB, pad, dateKey, timeKey, at, uid, medScheduledOn, medTimesOn, nextDoses, isInterval, dosesForDate, bpCategory, computeDue, runReminders, markTaken, snooze,
+    markSent, logNotifications, pushReminders, serverPushActive };
 })(typeof self !== 'undefined' ? self : window);

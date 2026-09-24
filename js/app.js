@@ -96,6 +96,7 @@
     state.intakes = intakes;
     state.appts = appts.sort((a, b) => (a.date + (a.time || '')).localeCompare(b.date + (b.time || '')));
     state.labs = labs.sort((a, b) => b.date.localeCompare(a.date));
+    if (typeof started !== 'undefined' && started && Cloud.user) schedulePushSync();
   }
   const saveSettings = () => DB.setKV('settings', state.settings);
   const intakeMap = () => new Map(state.intakes.map(i => [i.id, i]));
@@ -1650,8 +1651,9 @@
           ${sw('notifyAppts', 'Citas y exámenes', 'Según el recordatorio de cada evento', 'calendar')}
           ${sw('notifyBP', 'Tomar la presión', 'Recordatorio diario para medirte', 'heart')}
           <div class="field" style="padding:4px 0 12px"><span>Horarios para medir la presión</span><div id="bpTimes">${timesEditor(s.bpTimes || [], 'bpTimes')}</div></div>
-          <button class="btn outline block" data-act="test-notif" ${ns.ok ? '' : 'disabled'}>${icon('bell')} Enviar notificación de prueba</button>
-          <p class="small muted" style="margin-bottom:0">Los avisos se envían mientras la app esté abierta o minimizada. Para alarmas 100% garantizadas con la app cerrada, usa <b>Añadir a calendario</b> en Medicamentos y Agenda.</p>
+          ${pushCard()}
+          <button class="btn outline block" data-act="test-notif" ${ns.ok ? '' : 'disabled'} style="margin-top:8px">${icon('bell')} Enviar notificación de prueba (este dispositivo)</button>
+          <p class="small muted" style="margin-bottom:0">Con los avisos de la app cerrada activos, el servidor te avisa aunque Latidia no esté abierta. Si no abres la app en 14 días, los recordatorios dejan de renovarse.</p>
         </div>
       </div>
       <div class="stack-v">
@@ -1682,7 +1684,7 @@
     </div>`;
   }
   routeById('ajustes').after = () => {
-    $$('[data-set]').forEach(i => i.onchange = async () => { state.settings[i.dataset.set] = i.checked; await saveSettings(); toast('Guardado', 'check'); });
+    $$('[data-set]').forEach(i => i.onchange = async () => { state.settings[i.dataset.set] = i.checked; await saveSettings(); toast('Guardado', 'check'); schedulePushSync(500); });
     $$('[data-set-text]').forEach(i => i.onchange = async () => { state.settings[i.dataset.setText] = i.value.trim(); await saveSettings(); toast('Guardado', 'check'); });
     const box = $('#bpTimes');
     bindTimes(box, async () => { state.settings.bpTimes = readTimes(box, 'bpTimes'); await saveSettings(); });
@@ -1803,6 +1805,24 @@
     },
     csv: () => deliverFile(new Blob([reportCSV()], { type: 'text/csv;charset=utf-8' }), `presion-${state.report.from}_a_${state.report.to}.csv`, 'Registros de presión arterial'),
     'enable-notif': enableNotifications,
+    'push-enable': async el => {
+      el.disabled = true; el.textContent = 'Activando…';
+      try {
+        if (Notification.permission !== 'granted') await Notification.requestPermission();
+        await pushSync(true);
+        toast('Avisos con la app cerrada activados', 'check');
+      } catch (e) { state.push.error = e.message; toast('No se pudo activar: ' + e.message); }
+      render();
+    },
+    'push-test': async el => {
+      el.disabled = true;
+      try {
+        const r = await fetch(PUSH.url + '/test', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + await Cloud.idToken() }, body: '{}' });
+        const d = await r.json();
+        toast(d.delivered ? `Enviada a ${d.delivered} dispositivo${d.delivered === 1 ? '' : 's'}. Cierra la app para comprobar.` : 'El servidor no pudo entregarla', d.delivered ? 'check' : 'alert');
+      } catch (e) { toast('Error: ' + e.message); }
+      el.disabled = false;
+    },
     'test-notif': async () => {
       const reg = await navigator.serviceWorker.ready;
       await reg.showNotification('🔔 Notificación de prueba', { body: '¡Las notificaciones de Latidia funcionan!', icon: 'icons/icon-192.png', badge: 'icons/badge-96.png', tag: 'test' });
@@ -1852,6 +1872,7 @@
     },
     logout: async () => {
       if (!(await confirmDlg('Cerrar sesión', 'Tus datos seguirán guardados en tu cuenta. En este dispositivo se borrará la copia local y dejarás de recibir recordatorios hasta que vuelvas a iniciar sesión.', 'Cerrar sesión'))) return;
+      await pushUnsubscribe();
       await Cloud.signOut();
     },
     backup: async () => download(`respaldo-latidia-${today()}.json`, JSON.stringify(await DB.exportAll(), null, 1), 'application/json'),
@@ -2000,6 +2021,101 @@
     const f = $('#modalForm');
     if ($('#modal').open && f.dataset.panel === 'notifs') $('.modal-body', f).innerHTML = notifCenterHTML();
   }
+  // ======================================================
+  //  NOTIFICACIONES CON LA APP CERRADA (servidor Web Push)
+  // ======================================================
+  const PUSH = window.PUSH_CONFIG || {};
+  const pushSupported = () => !!(PUSH.url && PUSH.vapidPublicKey && 'serviceWorker' in navigator && 'PushManager' in window && typeof Notification !== 'undefined');
+  const b64uBytes = s => {
+    const t = s.replace(/-/g, '+').replace(/_/g, '/');
+    return Uint8Array.from(atob(t + '==='.slice((t.length + 3) % 4)), c => c.charCodeAt(0));
+  };
+  const sameBytes = (a, b) => { a = new Uint8Array(a); if (a.length !== b.length) return false; for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false; return true; };
+  const randomHex = n => Array.from(crypto.getRandomValues(new Uint8Array(n)), x => x.toString(16).padStart(2, '0')).join('');
+  state.push = { last: 0, error: '', busy: false };
+
+  let pushTimer = null;
+  function schedulePushSync(delay) {
+    clearTimeout(pushTimer);
+    pushTimer = setTimeout(() => pushSync().catch(e => { state.push.error = e.message; console.warn('push', e); }), delay ?? 3000);
+  }
+
+  // Suscribe este dispositivo y envía al servidor los recordatorios de los próximos 14 días
+  async function pushSync(force) {
+    if (!pushSupported() || !Cloud.user || Notification.permission !== 'granted') return false;
+    const reg = state.reg || await navigator.serviceWorker.ready;
+    const key = b64uBytes(PUSH.vapidPublicKey);
+    let sub = await reg.pushManager.getSubscription();
+    if (sub && sub.options && sub.options.applicationServerKey && !sameBytes(sub.options.applicationServerKey, key)) { await sub.unsubscribe(); sub = null; }
+    if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key });
+
+    let dev = await DB.getKV('pushDevice', null);
+    if (!dev) { dev = { id: uid(), secret: randomHex(24) }; await DB.setKV('pushDevice', dev); }
+    const reminders = state.settings.notify === false ? [] : await MS.pushReminders(14);
+    const done = state.intakes.filter(i => i.date >= addDays(today(), -1)).map(i => 'med:' + i.id);
+    const subJson = sub.toJSON();
+
+    // Evita escrituras innecesarias: solo si algo cambió o pasaron 6 h
+    const hash = JSON.stringify([subJson.endpoint, reminders.map(r => r.id + r.at + r.body), done]);
+    const prev = await DB.getKV('pushHash', null);
+    const last = await DB.getKV('pushActive', 0);
+    if (!force && prev === hash && Date.now() - last < 6 * 3600000) { state.push.last = last; return true; }
+
+    const token = await Cloud.idToken();
+    const r = await fetch(PUSH.url + '/sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+      body: JSON.stringify({ deviceId: dev.id, secret: dev.secret, subscription: subJson, reminders, done })
+    });
+    if (!r.ok) throw new Error('El servidor respondió ' + r.status);
+    const now = Date.now();
+    await DB.setKV('pushActive', now);
+    await DB.setKV('pushHash', hash);
+    await DB.setKV('pushCfg', { url: PUSH.url, uid: Cloud.user.uid, deviceId: dev.id, secret: dev.secret });
+    state.push.last = now; state.push.error = '';
+    if (currentRoute === 'ajustes' && !$('#modal').open) render();
+    return true;
+  }
+
+  async function pushUnsubscribe() {
+    try {
+      const dev = await DB.getKV('pushDevice', null);
+      if (PUSH.url && Cloud.user && dev) {
+        await fetch(PUSH.url + '/unsubscribe', {
+          method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + await Cloud.idToken() },
+          body: JSON.stringify({ deviceId: dev.id })
+        });
+      }
+      const reg = state.reg || await navigator.serviceWorker.ready;
+      const sub = reg && reg.pushManager && await reg.pushManager.getSubscription();
+      if (sub) await sub.unsubscribe();
+    } catch (e) { console.warn('push', e); }
+    for (const k of ['pushActive', 'pushHash', 'pushCfg']) await DB.del('kv', k);
+    state.push.last = 0;
+  }
+
+  function pushCard() {
+    if (!PUSH.url) return '';
+    const perm = typeof Notification === 'undefined' ? 'unsupported' : Notification.permission;
+    const ok = state.push.last && Date.now() - state.push.last < 36 * 3600000;
+    let status, action = '';
+    if (!pushSupported()) status = isIOS() && !isStandalone() ? 'Instala la app en la pantalla de inicio para activarlos.' : 'Este navegador no admite notificaciones push.';
+    else if (perm !== 'granted') status = 'Activa primero las notificaciones.';
+    else if (ok) {
+      const mins = Math.round((Date.now() - state.push.last) / 60000);
+      status = `Activos ✓ · sincronizado ${mins < 1 ? 'hace un momento' : mins < 60 ? `hace ${mins} min` : `hace ${Math.round(mins / 60)} h`}`;
+      action = `<button class="btn outline small" data-act="push-test">${icon('bell')} Probar</button>`;
+    } else {
+      status = state.push.error ? 'Error: ' + state.push.error : 'Sin activar en este dispositivo.';
+      action = `<button class="btn small" data-act="push-enable">${icon('cloud')} Activar</button>`;
+    }
+    return `<div class="setting"><div class="item-ic" style="background:${ok ? 'color-mix(in srgb, var(--ok) 15%, transparent)' : 'var(--surface-2)'};color:${ok ? 'var(--ok)' : 'inherit'}">${icon('cloud')}</div>
+      <div class="item-body"><div class="item-title">Avisos con la app cerrada</div><div class="item-sub">${esc(status)}</div></div>${action}</div>
+      ${ok ? `<div class="setting"><div class="item-ic" style="background:var(--surface-2)">${icon('clock')}</div>
+        <div class="item-body"><div class="item-title">Repetir si no marco la dosis</div><div class="item-sub">Segundo aviso 30 min después</div></div>
+        <label class="switch"><input type="checkbox" data-set="pushRepeat" ${state.settings.pushRepeat !== false ? 'checked' : ''}><span></span></label></div>` : ''}`;
+  }
+
   async function enableNotifications() {
     if (typeof Notification === 'undefined' || !('serviceWorker' in navigator)) {
       toast(isIOS() ? 'En iPhone, instala primero la app en la pantalla de inicio' : 'Este navegador no soporta notificaciones');
@@ -2011,6 +2127,7 @@
       await registerPeriodicSync();
       toast('Notificaciones activadas', 'bell');
       checkReminders();
+      pushSync(true).catch(e => { state.push.error = e.message; });
     } else toast('Permiso de notificaciones no concedido');
     render();
   }
@@ -2140,6 +2257,8 @@
   async function startApp() {
     showScreen('app');
     await load();
+    state.push.last = await DB.getKV('pushActive', 0);
+    if (Cloud.user) schedulePushSync(1500);
     const nm = pendingName || (Cloud.user && Cloud.user.displayName);
     if (nm && !state.settings.name) { state.settings.name = nm; await saveSettings(); }
     pendingName = '';
@@ -2148,6 +2267,7 @@
     if (!started) {
       started = true;
       setInterval(checkReminders, 30000);
+      setInterval(() => { if (Cloud.user) schedulePushSync(0); }, 3600000);
       // Refresca la vista de inicio cada minuto (estados "pendiente", etc.)
       setInterval(() => { if (currentRoute === 'inicio' && !$('#modal').open && document.visibilityState === 'visible') render(); }, 60000);
     }

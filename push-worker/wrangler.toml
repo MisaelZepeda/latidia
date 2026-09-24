@@ -1,0 +1,21 @@
+# Latidia — servidor de notificaciones (Cloudflare Workers, plan gratuito)
+name = "latidia-push"
+main = "src/index.js"
+compatibility_date = "2026-09-01"
+workers_dev = true
+
+# Revisa cada minuto qué recordatorios tocan
+[triggers]
+crons = ["* * * * *"]
+
+[[kv_namespaces]]
+binding = "PUSH"
+id = "889c041e182d481284c14d9d28dbfaa2"
+
+[vars]
+FIREBASE_PROJECT_ID = "medicsoft-12861"
+VAPID_PUBLIC_KEY = "BJZ5dh3PvqXVygy7zdx7zl2WskHf-7LoaJ_FKR4n8NtRfWYBj2mFBZVGaxF9oFveDA_sdjDxnazoDfuEcCjXaPc"
+VAPID_SUBJECT = "https://misaelzepeda.github.io/latidia/"
+ALLOWED_ORIGINS = "https://misaelzepeda.github.io,http://localhost:5173"
+
+# Secreto (no va en el repositorio): npx wrangler secret put VAPID_PRIVATE_JWK

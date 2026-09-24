@@ -1,0 +1,15 @@
+{
+  "name": "latidia-push",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "logs": "wrangler tail"
+  },
+  "devDependencies": {
+    "wrangler": "^4"
+  },
+  "optionalDependencies": {
+    "@cloudflare/workerd-windows-64": "1.20260921.1"
+  }
+}
