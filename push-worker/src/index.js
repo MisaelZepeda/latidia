@@ -86,7 +86,12 @@ async function sendPush(sub, message, env) {
 // Envía a todos los dispositivos del usuario; elimina suscripciones vencidas (404/410)
 async function sendToUser(user, message, env) {
   let delivered = 0, changed = false;
-  for (const [id, d] of Object.entries(user.subs || {})) {
+  const seen = new Set();
+  // El registro más reciente de cada dirección push gana; los duplicados se eliminan
+  const entries = Object.entries(user.subs || {}).sort((a, b) => (b[1].updated || 0) - (a[1].updated || 0));
+  for (const [id, d] of entries) {
+    if (seen.has(d.sub.endpoint)) { delete user.subs[id]; changed = true; continue; }
+    seen.add(d.sub.endpoint);
     try {
       const st = await sendPush(d.sub, message, env);
       if (st === 404 || st === 410) { delete user.subs[id]; changed = true; }
@@ -151,6 +156,8 @@ async function handle(req, env) {
     const u = await getUser(env, uid);
     const { deviceId, subscription, secret } = body;
     if (deviceId && subscription && subscription.endpoint && subscription.keys) {
+      // Un mismo dispositivo (misma dirección push) solo puede estar registrado una vez
+      for (const [id, d] of Object.entries(u.subs)) if (id !== deviceId && d.sub.endpoint === subscription.endpoint) delete u.subs[id];
       u.subs[deviceId] = { sub: { endpoint: subscription.endpoint, keys: subscription.keys }, secret: String(secret || ''), updated: Date.now() };
     }
     if (Array.isArray(body.reminders)) {

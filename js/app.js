@@ -2040,8 +2040,16 @@
     pushTimer = setTimeout(() => pushSync().catch(e => { state.push.error = e.message; console.warn('push', e); }), delay ?? 3000);
   }
 
-  // Suscribe este dispositivo y envía al servidor los recordatorios de los próximos 14 días
-  async function pushSync(force) {
+  // Suscribe este dispositivo y envía al servidor los recordatorios de los próximos 14 días.
+  // Las llamadas se encadenan: dos sincronizaciones simultáneas creaban registros duplicados.
+  let pushChain = Promise.resolve();
+  function pushSync(force) {
+    const run = pushChain.then(() => pushSyncNow(force));
+    pushChain = run.catch(() => {});
+    return run;
+  }
+
+  async function pushSyncNow(force) {
     if (!pushSupported() || !Cloud.user || Notification.permission !== 'granted') return false;
     const reg = state.reg || await navigator.serviceWorker.ready;
     const key = b64uBytes(PUSH.vapidPublicKey);
@@ -2049,8 +2057,11 @@
     if (sub && sub.options && sub.options.applicationServerKey && !sameBytes(sub.options.applicationServerKey, key)) { await sub.unsubscribe(); sub = null; }
     if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key });
 
+    // Identificador estable: derivado de la dirección push (el mismo teléfono = el mismo id)
+    const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(sub.endpoint));
+    const devId = Array.from(new Uint8Array(digest).slice(0, 12), x => x.toString(16).padStart(2, '0')).join('');
     let dev = await DB.getKV('pushDevice', null);
-    if (!dev) { dev = { id: uid(), secret: randomHex(24) }; await DB.setKV('pushDevice', dev); }
+    if (!dev || dev.id !== devId) { dev = { id: devId, secret: (dev && dev.secret) || randomHex(24) }; await DB.setKV('pushDevice', dev); }
     const reminders = state.settings.notify === false ? [] : await MS.pushReminders(14);
     const done = state.intakes.filter(i => i.date >= addDays(today(), -1)).map(i => 'med:' + i.id);
     const subJson = sub.toJSON();
