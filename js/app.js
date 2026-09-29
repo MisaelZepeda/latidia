@@ -227,7 +227,7 @@
     view.innerHTML = route.render();
     if (route.fab) view.insertAdjacentHTML('beforeend', `<button class="fab" data-act="fab" aria-label="Agregar">${icon('plus')}</button>`);
     if (route.after) route.after();
-    if (changed) { window.scrollTo(0, 0); view.scrollTop = 0; }
+    if (changed) window.scrollTo(0, 0);
     refreshNotifCenter();
     if (params.get('nuevo') && route.fab) {
       history.replaceState(null, '', '#/' + route.id);
@@ -1911,8 +1911,19 @@
     if (v === 'auto') delete document.documentElement.dataset.theme;
     else document.documentElement.dataset.theme = v;
     try { v === 'auto' ? localStorage.removeItem('ms-theme') : localStorage.setItem('ms-theme', v); } catch (_) {}
+    syncThemeColor();
     render();
   }
+  // La barra de estado sigue el tema elegido en la app (no solo el del sistema)
+  function syncThemeColor() {
+    const t = document.documentElement.dataset.theme;
+    $$('meta[name="theme-color"]').forEach(m => {
+      if (!m.dataset.media) m.dataset.media = m.getAttribute('media') || '';
+      if (t) { m.removeAttribute('media'); m.content = t === 'dark' ? '#0a1220' : '#f3f6fa'; }
+      else { m.setAttribute('media', m.dataset.media); m.content = m.dataset.media.includes('dark') ? '#0a1220' : '#f3f6fa'; }
+    });
+  }
+  syncThemeColor();
   const isDark = () => {
     const t = document.documentElement.dataset.theme;
     return t ? t === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
@@ -2182,7 +2193,6 @@
   function showScreen(which) {
     $('#auth').hidden = which === 'app';
     $('#app').hidden = which !== 'app';
-    document.documentElement.classList.toggle('in-app', which === 'app');
     $('#bottomNav').hidden = which !== 'app';
   }
 
@@ -2314,9 +2324,7 @@
   window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); state.installEvt = e; if (started) render(); });
   window.addEventListener('appinstalled', () => { state.installEvt = null; toast('¡App instalada!', 'check'); if (started) render(); });
   window.addEventListener('hashchange', () => { if (started) render(); });
-  const onScroll = () => $('.topbar').classList.toggle('scrolled', scrollY > 4 || $('#view').scrollTop > 4);
-  window.addEventListener('scroll', onScroll, { passive: true });
-  $('#view').addEventListener('scroll', onScroll, { passive: true });
+  window.addEventListener('scroll', () => $('.topbar').classList.toggle('scrolled', scrollY > 4), { passive: true });
   let rz, lastW = innerWidth;
   window.addEventListener('resize', () => {
     clearTimeout(rz);
