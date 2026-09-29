@@ -115,6 +115,13 @@ a { color: var(--primary); }
   .in-group .topbar-title .brand-logo { display: none; }
   .topbar h1 { font-size: 1.2rem; }
   .view { padding: 4px 16px calc(var(--nav-h) + 24px + env(safe-area-inset-bottom)); }
+  /* iOS 26 desvanece lo que pasa bajo la barra de estado cuando se desplaza la página completa.
+     En el celular solo se desplaza el contenido (#view); el encabezado queda fuera y nítido. */
+  html.in-app, html.in-app body { height: 100%; overflow: hidden; }
+  .app { height: 100vh; height: 100dvh; min-height: 0; }
+  .main { height: 100%; overflow: hidden; }
+  .topbar { position: relative; flex: none; }
+  .view { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior-y: contain; -webkit-overflow-scrolling: touch; }
   .bottom-nav {
     display: flex; position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
     background: var(--surface); border-top: 1px solid var(--border);

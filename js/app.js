@@ -227,7 +227,7 @@
     view.innerHTML = route.render();
     if (route.fab) view.insertAdjacentHTML('beforeend', `<button class="fab" data-act="fab" aria-label="Agregar">${icon('plus')}</button>`);
     if (route.after) route.after();
-    if (changed) window.scrollTo(0, 0);
+    if (changed) { window.scrollTo(0, 0); view.scrollTop = 0; }
     refreshNotifCenter();
     if (params.get('nuevo') && route.fab) {
       history.replaceState(null, '', '#/' + route.id);
@@ -2182,6 +2182,7 @@
   function showScreen(which) {
     $('#auth').hidden = which === 'app';
     $('#app').hidden = which !== 'app';
+    document.documentElement.classList.toggle('in-app', which === 'app');
     $('#bottomNav').hidden = which !== 'app';
   }
 
@@ -2313,7 +2314,9 @@
   window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); state.installEvt = e; if (started) render(); });
   window.addEventListener('appinstalled', () => { state.installEvt = null; toast('¡App instalada!', 'check'); if (started) render(); });
   window.addEventListener('hashchange', () => { if (started) render(); });
-  window.addEventListener('scroll', () => $('.topbar').classList.toggle('scrolled', scrollY > 4), { passive: true });
+  const onScroll = () => $('.topbar').classList.toggle('scrolled', scrollY > 4 || $('#view').scrollTop > 4);
+  window.addEventListener('scroll', onScroll, { passive: true });
+  $('#view').addEventListener('scroll', onScroll, { passive: true });
   let rz, lastW = innerWidth;
   window.addEventListener('resize', () => {
     clearTimeout(rz);
