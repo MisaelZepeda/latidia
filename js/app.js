@@ -187,11 +187,18 @@
     { id: 'signos', label: 'Signos', title: 'Signos vitales', icon: 'activity', render: renderVitals, fab: () => vitalForm() },
     { id: 'medicamentos', label: 'Medicinas', title: 'Medicamentos', icon: 'pill', render: renderMeds, fab: () => medForm() },
     { id: 'agenda', label: 'Agenda', title: 'Agenda médica', icon: 'calendar', render: renderAgenda, fab: () => apptForm(null, state.calSel) },
-    { id: 'analisis', label: 'Análisis', title: 'Análisis de laboratorio', icon: 'flask', render: renderLabs, after: () => labsAfter(), fab: () => labChooser() },
-    { id: 'reportes', label: 'Reportes', title: 'Reportes', icon: 'report', render: renderReports },
-    { id: 'ajustes', label: 'Ajustes', title: 'Ajustes', icon: 'settings', render: renderSettings },
-    { id: 'ficha', label: 'Ficha', title: 'Mi ficha médica', icon: 'user', render: renderFicha, after: () => fichaAfter(), nav: false }
+    { id: 'analisis', label: 'Análisis', title: 'Análisis de laboratorio', icon: 'flask', render: renderLabs, after: () => labsAfter(), fab: () => labChooser(), group: 'mas', sub: 'Resultados de laboratorio' },
+    { id: 'reportes', label: 'Reportes', title: 'Reportes', icon: 'report', render: renderReports, group: 'mas', sub: 'PDF y Excel por fechas' },
+    { id: 'ficha', label: 'Mi ficha', title: 'Mi ficha médica', icon: 'card', render: renderFicha, after: () => fichaAfter(), group: 'mas', sub: 'Datos del paciente y tarjeta con QR' },
+    { id: 'ajustes', label: 'Ajustes', title: 'Ajustes', icon: 'settings', render: renderSettings, group: 'mas', sub: 'Cuenta, notificaciones y respaldo' },
+    { id: 'mas', label: 'Más', title: 'Más', icon: 'grid', render: renderMore, side: false }
   ];
+  // En el celular la barra inferior muestra 5 accesos; el resto vive en «Más»
+  function renderMore() {
+    return `<div class="card"><div class="list">${ROUTES.filter(r => r.group === 'mas').map(r => `
+      <a class="item more-link" href="#/${r.id}"><div class="item-ic" style="background:var(--primary-soft);color:var(--primary)">${icon(r.icon)}</div>
+        <div class="item-body"><div class="item-title">${r.label}</div><div class="item-sub">${r.sub}</div></div>${icon('right')}</a>`).join('')}</div></div>`;
+  }
   const routeById = id => ROUTES.find(r => r.id === id);
   function parseHash() {
     const h = location.hash.replace(/^#\/?/, '');
@@ -199,9 +206,9 @@
     return { route: ROUTES.find(r => r.id === path) || ROUTES[0], params: new URLSearchParams(qs || '') };
   }
   function buildNav() {
-    const links = ROUTES.filter(r => r.nav !== false).map(r => `<a href="#/${r.id}" data-route="${r.id}">${icon(r.icon)}<span>${r.label}</span></a>`).join('');
-    $('#nav').innerHTML = links;
-    $('#bottomNav').innerHTML = links;
+    const link = r => `<a href="#/${r.id}" data-route="${r.id}">${icon(r.icon)}<span>${r.label}</span></a>`;
+    $('#nav').innerHTML = ROUTES.filter(r => r.side !== false).map(link).join('');
+    $('#bottomNav').innerHTML = ROUTES.filter(r => !r.group).map(link).join('');
   }
   let currentRoute = null;
   function render() {
@@ -209,8 +216,13 @@
     const changed = currentRoute !== route.id;
     currentRoute = route.id;
     $('#pageTitle').textContent = route.title;
+    const back = $('#backBtn');
+    if (!back.innerHTML) back.innerHTML = icon('left');
+    back.hidden = route.group !== 'mas';
+    document.body.classList.toggle('in-group', !!route.group);
     document.title = `${route.title} · Latidia`;
-    $$('[data-route]').forEach(a => a.classList.toggle('active', a.dataset.route === route.id));
+    $$('#nav [data-route]').forEach(a => a.classList.toggle('active', a.dataset.route === route.id));
+    $$('#bottomNav [data-route]').forEach(a => a.classList.toggle('active', a.dataset.route === (route.group || route.id)));
     const view = $('#view');
     view.innerHTML = route.render();
     if (route.fab) view.insertAdjacentHTML('beforeend', `<button class="fab" data-act="fab" aria-label="Agregar">${icon('plus')}</button>`);

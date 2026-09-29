@@ -87,7 +87,7 @@ a { color: var(--primary); }
   display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 12px;
   color: var(--muted); text-decoration: none; font-weight: 500;
 }
-.nav a:hover { background: var(--surface-2); color: var(--text); }
+@media (hover: hover) { .nav a:hover { background: var(--surface-2); color: var(--text); } }
 .nav a.active { background: var(--primary-soft); color: var(--primary); }
 .sidebar-foot { margin-top: auto; }
 
@@ -100,6 +100,7 @@ a { color: var(--primary); }
 }
 .topbar-title { display: flex; align-items: center; gap: 10px; }
 .topbar-title .brand-logo { display: none; }
+.back-btn { display: none; margin-left: -8px; }
 .topbar h1 { font-size: 1.4rem; }
 .topbar-actions { display: flex; gap: 6px; }
 .view { padding: 4px 28px 40px; max-width: 1200px; width: 100%; outline: none; }
@@ -110,6 +111,8 @@ a { color: var(--primary); }
   .sidebar { display: none; }
   .topbar { padding: 12px 16px; padding-top: max(12px, env(safe-area-inset-top)); }
   .topbar-title .brand-logo { display: grid; }
+  .back-btn:not([hidden]) { display: inline-grid; }
+  .in-group .topbar-title .brand-logo { display: none; }
   .topbar h1 { font-size: 1.2rem; }
   .view { padding: 4px 16px calc(var(--nav-h) + 24px + env(safe-area-inset-bottom)); }
   .bottom-nav {
@@ -175,7 +178,7 @@ a { color: var(--primary); }
   padding: 10px 16px; border-radius: 12px; cursor: pointer; text-decoration: none; min-height: 42px;
   transition: filter .15s, transform .05s;
 }
-.btn:hover { filter: brightness(1.07); }
+@media (hover: hover) { .btn:hover { filter: brightness(1.07); } }
 .btn:active { transform: scale(.98); }
 .btn.ghost { background: var(--surface-2); color: var(--text); }
 .btn.outline { background: transparent; color: var(--text); border-color: var(--border); }
@@ -186,9 +189,9 @@ a { color: var(--primary); }
   width: 40px; height: 40px; border-radius: 12px; border: 0; background: transparent; color: var(--muted);
   display: inline-grid; place-items: center; cursor: pointer;
 }
-.icon-btn:hover { background: var(--surface-2); color: var(--text); }
+@media (hover: hover) { .icon-btn:hover { background: var(--surface-2); color: var(--text); } }
 .icon-btn.on { color: var(--primary); }
-.icon-btn.danger:hover { color: var(--danger); background: var(--danger-soft); }
+@media (hover: hover) { .icon-btn.danger:hover { color: var(--danger); background: var(--danger-soft); } }
 
 .fab {
   position: fixed; right: 20px; bottom: calc(var(--nav-h) + 16px + env(safe-area-inset-bottom)); z-index: 15;
@@ -226,7 +229,10 @@ a { color: var(--primary); }
 }
 .dose-btn.taken { background: var(--ok); border-color: var(--ok); color: #fff; }
 .dose-btn.skipped { background: var(--surface-2); color: var(--muted); }
-.dose-btn:hover:not(.taken) { border-color: var(--ok); color: var(--ok); }
+/* Solo con mouse: en iPhone el :hover se queda «pegado» y el círculo siguiente parecía marcado */
+@media (hover: hover) { .dose-btn:hover:not(.taken) { border-color: var(--ok); color: var(--ok); } }
+.more-link { color: inherit; text-decoration: none; }
+.more-link > .ic { color: var(--muted); flex: none; }
 
 .progress { height: 8px; border-radius: 99px; background: var(--surface-2); overflow: hidden; }
 .progress > div { height: 100%; background: linear-gradient(90deg, var(--primary), var(--primary-2)); border-radius: inherit; }
