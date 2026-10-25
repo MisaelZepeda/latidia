@@ -79,7 +79,7 @@
   const state = {
     settings: {}, vitals: [], meds: [], intakes: [], appts: [],
     reg: null, installEvt: null,
-    vitalsRange: 30, medDay: today(), showIds: false, cardFace: 'front',
+    vitalsRange: 30, medDay: today(), 
     calMonth: null, calSel: today(),
     report: null
   };
@@ -189,7 +189,6 @@
     { id: 'agenda', label: 'Agenda', title: 'Agenda médica', icon: 'calendar', render: renderAgenda, fab: () => apptForm(null, state.calSel) },
     { id: 'analisis', label: 'Análisis', title: 'Análisis de laboratorio', icon: 'flask', render: renderLabs, after: () => labsAfter(), fab: () => labChooser(), group: 'mas', sub: 'Resultados de laboratorio' },
     { id: 'reportes', label: 'Reportes', title: 'Reportes', icon: 'report', render: renderReports, group: 'mas', sub: 'PDF y Excel por fechas' },
-    { id: 'ficha', label: 'Mi ficha', title: 'Mi ficha médica', icon: 'card', render: renderFicha, after: () => fichaAfter(), group: 'mas', sub: 'Datos del paciente y tarjeta con QR' },
     { id: 'ajustes', label: 'Ajustes', title: 'Ajustes', icon: 'settings', render: renderSettings, group: 'mas', sub: 'Cuenta, notificaciones y respaldo' },
     { id: 'mas', label: 'Más', title: 'Más', icon: 'grid', render: renderMore, side: false }
   ];
@@ -268,7 +267,6 @@
     return `
     <div class="stack-v">
       <div><div class="muted">${cap(fmtLong(today()))}</div><h2 style="font-size:1.5rem">${greet}${s.name ? ', ' + esc(s.name.split(' ')[0]) : ''} 👋</h2></div>
-      ${fichaMini()}
       ${banners.join('')}
       <div class="grid cols-2">
         <div class="card hero">
@@ -1321,13 +1319,12 @@
   }
 
   // ======================================================
-  //  FICHA MÉDICA
+  //  DATOS DEL PACIENTE (se usan en los reportes)
   // ======================================================
   const BLOOD_TYPES = ['O+', 'O-', 'A+', 'A-', 'B+', 'B-', 'AB+', 'AB-'];
   const INSTITUTIONS = ['IMSS', 'ISSSTE', 'IMSS-Bienestar', 'Pemex', 'Sedena / Semar', 'Seguro privado', 'Ninguna', 'Otra'];
   const CURP_RE = /^[A-Z][AEIOUX][A-Z]{2}\d{2}(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])[HMX][A-Z]{2}[B-DF-HJ-NP-TV-Z]{3}[A-Z\d]\d$/;
   const listOf = v => Array.isArray(v) ? v : String(v || '').split(/[\n,;]+/).map(x => x.trim()).filter(Boolean);
-  const maskId = v => v ? '•'.repeat(Math.max(0, v.length - 4)) + v.slice(-4) : '';
   const SEX = { M: 'Mujer', H: 'Hombre', X: 'No binario' };
 
   // La CURP contiene la fecha de nacimiento y el sexo
@@ -1338,163 +1335,11 @@
     return { birth: `${year}-${mm}-${dd}`, sex: curp[10] };
   }
 
-  function bmiInfo(w, hCm) {
-    if (!w || !hCm) return null;
-    const v = w / Math.pow(hCm / 100, 2);
-    const label = v < 18.5 ? 'Bajo peso' : v < 25 ? 'Peso normal' : v < 30 ? 'Sobrepeso' : 'Obesidad';
-    const color = v < 18.5 ? 'var(--bp-low)' : v < 25 ? 'var(--bp-normal)' : v < 30 ? 'var(--bp-elev)' : 'var(--bp-h1)';
-    return { value: Math.round(v * 10) / 10, label, color };
-  }
-
-  function profile() {
-    const s = state.settings;
-    const lastW = state.vitals.find(v => v.weight);
-    const lastBP = state.vitals.find(v => v.sys && v.dia);
-    return {
-      s, age: ageFrom(s.birth), conditions: listOf(s.conditions), allergies: listOf(s.allergies),
-      weight: lastW ? lastW.weight : null, weightDate: lastW ? lastW.date : null,
-      bmi: bmiInfo(lastW && lastW.weight, s.height),
-      lastBP, bpCat: lastBP ? bpCategory(lastBP.sys, lastBP.dia) : null,
-      meds: state.meds.filter(m => m.active !== false && (!m.end || m.end >= today())),
-      filled: !!(s.name || s.birth || s.curp || s.blood || s.conditions || s.allergies)
-    };
-  }
-
-  const initials = n => (n || '?').trim().split(/\s+/).slice(0, 2).map(w => w[0]).join('').toUpperCase();
-
-  // Tarjeta compacta para Inicio
-  function fichaMini() {
-    const p = profile(), s = p.s;
-    if (!p.filled) {
-      return `<a href="#/ficha" class="banner" style="text-decoration:none">${icon('user')}<div class="item-body"><b>Completa tu ficha médica</b>
-        <div class="small muted">Edad, tipo de sangre, alergias, padecimientos, CURP, NSS y contacto de emergencia a la mano.</div></div>${icon('right')}</a>`;
-    }
-    return `<a href="#/ficha" class="card ficha-mini">
-      <div class="ficha-avatar">${esc(initials(s.name))}</div>
-      <div class="item-body">
-        <div class="item-title">${esc(s.name || 'Mi ficha médica')}</div>
-        <div class="item-sub">${[p.age, SEX[s.sex], s.institution && s.institution !== 'Ninguna' ? s.institution : ''].filter(Boolean).join(' · ') || 'Ver ficha'}</div>
-        <div class="row" style="gap:6px;margin-top:6px">
-          ${s.blood ? `<span class="chip blood">${icon('droplet')}${esc(s.blood)}</span>` : ''}
-          ${p.allergies.length ? `<span class="chip danger">${icon('alert')}Alergias: ${esc(p.allergies.slice(0, 2).join(', '))}${p.allergies.length > 2 ? '…' : ''}</span>` : ''}
-          ${p.conditions.slice(0, 2).map(c => `<span class="chip">${esc(c)}</span>`).join('')}
-          ${p.conditions.length > 2 ? `<span class="chip">+${p.conditions.length - 2}</span>` : ''}
-        </div>
-      </div>${icon('right', 'muted')}</a>`;
-  }
-
-  function renderFicha() {
-    const p = profile(), s = p.s;
-    if (!p.filled) {
-      return `<div class="card">${emptyState('user', 'Aún no has llenado tu ficha médica.<br>Tenla lista para tus consultas o una emergencia.',
-        `<button class="btn" style="margin-top:14px" data-act="edit-ficha">${icon('edit')} Llenar mi ficha</button>`)}</div>`;
-    }
-    const idRow = (label, val, key) => `<div class="kv"><span>${label}</span><b class="num">${val
-      ? (key ? `<span data-secret="${key}">${esc(state.showIds ? val : maskId(val))}</span>` : esc(val)) : '<span class="muted" style="font-weight:400">—</span>'}</b></div>`;
-    const birthTxt = s.birth ? fmtDate(s.birth, { day: 'numeric', month: 'long', year: 'numeric' }) : '';
-    return `
-    <div class="stack-v">
-      <div class="card id-card">
-        <div class="id-head">
-          <div class="ficha-avatar lg">${esc(initials(s.name))}</div>
-          <div class="item-body">
-            <div class="id-label">Ficha médica</div>
-            <h2>${esc(s.name || 'Sin nombre')}</h2>
-            <div class="id-sub">${[p.age, SEX[s.sex], birthTxt && 'Nació el ' + birthTxt].filter(Boolean).join(' · ')}</div>
-          </div>
-          <div class="blood-badge" title="Tipo de sangre"><span>${esc(s.blood || '—')}</span><small>Sangre</small></div>
-        </div>
-        <div class="id-body">
-          <div class="row between" style="margin-bottom:4px"><span class="small muted">Identificación</span>
-            ${s.curp || s.nss ? `<button class="btn ghost small" data-act="toggle-ids">${icon(state.showIds ? 'eyeOff' : 'eye')} ${state.showIds ? 'Ocultar' : 'Mostrar'}</button>` : ''}</div>
-          <div class="kv-grid">
-            ${idRow('CURP', s.curp, 'curp')}
-            ${idRow('Número de Seguridad Social', s.nss, 'nss')}
-            ${idRow('Institución', s.institution)}
-            ${idRow('Clínica / UMF', s.clinic)}
-          </div>
-        </div>
-      </div>
-
-      <div class="card">
-        <div class="card-head"><h3>${icon('card')} Mi tarjeta médica</h3>
-          <div class="seg"><button data-act="card-face" data-v="front" class="${state.cardFace === 'front' ? 'active' : ''}">Frente</button>
-          <button data-act="card-face" data-v="back" class="${state.cardFace === 'back' ? 'active' : ''}">Reverso</button></div></div>
-        <div class="med-card"><img id="medCardImg" alt="Tarjeta médica (${state.cardFace === 'back' ? 'reverso' : 'frente'})" hidden><div class="med-card-ph" id="medCardPh">Generando tarjeta…</div></div>
-        <label class="check" style="margin-top:12px"><input type="checkbox" data-card-ids ${s.cardIds ? 'checked' : ''}> Incluir CURP y NSS en la tarjeta y el QR</label>
-        <div class="report-actions" style="max-width:none">
-          <button class="btn" data-act="card-img">${icon('download')} ${isMobile() ? 'Guardar imagen' : 'Descargar imagen'}</button>
-          <button class="btn outline" data-act="card-pdf">${icon('printer')} Imprimir tamaño credencial</button>
-        </div>
-        <p class="small muted" style="margin-bottom:0">El QR contiene tus datos esenciales como texto: cualquier cámara lo lee sin internet ni apps.
-          ${isIOS() ? 'Tip: guárdala en Fotos y márcala como favorita (♡) para encontrarla rápido.' : ''}</p>
-      </div>
-
-      <div class="allergy-strip ${p.allergies.length ? '' : 'none'}">${icon('alert')}
-        <div><b>${p.allergies.length ? 'Alergias' : 'Sin alergias registradas'}</b>
-        ${p.allergies.length ? `<div class="row" style="gap:6px;margin-top:6px">${p.allergies.map(a => `<span class="chip danger">${esc(a)}</span>`).join('')}</div>` : ''}</div></div>
-
-      <div class="grid cols-2">
-        <div class="card"><div class="card-head"><h3>${icon('stethoscope')} Padecimientos</h3></div>
-          ${p.conditions.length ? `<div class="row" style="gap:8px">${p.conditions.map(c => `<span class="chip lg">${esc(c)}</span>`).join('')}</div>` : '<div class="small muted">Sin padecimientos registrados.</div>'}
-          ${s.fichaNotes ? `<div class="small" style="margin-top:12px"><b>Notas:</b> ${esc(s.fichaNotes)}</div>` : ''}</div>
-
-        <div class="card"><div class="card-head"><h3>${icon('scale')} Medidas y signos</h3></div>
-          <div class="kv-grid">
-            ${idRow('Estatura', s.height ? s.height + ' cm' : '')}
-            ${idRow('Último peso', p.weight ? `${p.weight} kg` : '')}
-            <div class="kv"><span>IMC</span><b>${p.bmi ? `${p.bmi.value} <span class="small" style="color:${p.bmi.color}">${p.bmi.label}</span>` : '<span class="muted" style="font-weight:400">—</span>'}</b></div>
-            <div class="kv"><span>Última presión</span><b>${p.lastBP ? `${p.lastBP.sys}/${p.lastBP.dia} <span class="small" style="color:${p.bpCat.color}">${p.bpCat.label}</span>` : '<span class="muted" style="font-weight:400">—</span>'}</b></div>
-          </div>
-          ${!s.height ? '<div class="small muted" style="margin-top:8px">Agrega tu estatura para calcular el IMC.</div>' : ''}</div>
-
-        <div class="card"><div class="card-head"><h3>${icon('pill')} Medicamentos actuales</h3><a href="#/medicamentos" class="small">Ver</a></div>
-          ${p.meds.length ? `<div class="list">${p.meds.map(m => `<div class="item"><div class="item-body"><div class="item-title">${esc(m.name)}</div>
-            <div class="item-sub">${esc([doseLabel(m), schedLabel(m)].filter(Boolean).join(' · '))}</div></div></div>`).join('')}</div>` : '<div class="small muted">Sin medicamentos activos.</div>'}</div>
-
-        ${fichaLabsCard()}
-        <div class="card"><div class="card-head"><h3>${icon('user')} Contacto de emergencia</h3></div>
-          ${s.emName || s.emPhone ? `<div class="row" style="flex-wrap:nowrap">
-            <div class="item-body"><div class="item-title">${esc(s.emName || 'Contacto')}</div><div class="item-sub">${esc([s.emRel, s.emPhone].filter(Boolean).join(' · '))}</div></div>
-            ${s.emPhone ? `<a class="btn small" href="tel:${esc(s.emPhone.replace(/[^\d+]/g, ''))}">${icon('phone')} Llamar</a>` : ''}</div>`
-            : '<div class="small muted">Sin contacto de emergencia.</div>'}
-          <div style="border-top:1px solid var(--border);margin-top:14px;padding-top:12px">
-            <div class="small muted">Médico tratante</div>
-            <div class="row" style="flex-wrap:nowrap"><div class="item-body"><b>${esc(s.doctor || '—')}</b></div>
-            ${s.doctorPhone ? `<a class="btn outline small" href="tel:${esc(s.doctorPhone.replace(/[^\d+]/g, ''))}">${icon('phone')} Llamar</a>` : ''}</div>
-          </div></div>
-      </div>
-
-      <div class="report-actions" style="max-width:none">
-        <button class="btn" data-act="edit-ficha">${icon('edit')} Editar ficha</button>
-        <button class="btn outline" data-act="ficha-pdf">${icon('file')} ${isMobile() ? 'Compartir ficha (PDF)' : 'Descargar ficha (PDF)'}</button>
-      </div>
-      <p class="small muted" style="margin:0">${icon('lock', '').replace('class="ic ', 'style="width:14px;height:14px;vertical-align:-2px" class="ic ')} Tu ficha se guarda en tu cuenta y solo tú puedes verla. La CURP y el NSS se muestran ocultos en pantalla; en el PDF aparecen completos.</p>
-    </div>`;
-  }
-
-  function fichaLabsCard() {
-    const last = state.labs[0];
-    if (!last) return `<div class="card"><div class="card-head"><h3>${icon('flask')} Análisis de laboratorio</h3><a href="#/analisis" class="small">Agregar</a></div>
-      <div class="small muted">Aún no has registrado análisis.</div></div>`;
-    const out = (last.items || []).filter(it => ['high', 'low'].includes(labFlag(it)));
-    return `<div class="card"><div class="card-head"><h3>${icon('flask')} Último análisis</h3><a href="#/analisis" class="small">Ver todos</a></div>
-      <div class="small muted" style="margin-bottom:8px">${cap(fmtDate(last.date, { day: 'numeric', month: 'long', year: 'numeric' }))}${last.lab ? ' · ' + esc(last.lab) : ''} · ${(last.items || []).length} parámetros</div>
-      ${out.length ? `<div class="row" style="gap:6px">${out.map(it => `<span class="chip" style="color:${LAB_FLAG[labFlag(it)].color};background:color-mix(in srgb, ${LAB_FLAG[labFlag(it)].color} 13%, transparent)">${esc(it.name)} ${esc(it.value)} · ${LAB_FLAG[labFlag(it)].label}</span>`).join('')}</div>`
-        : '<div class="small" style="color:var(--ok)">Todos los valores dentro de referencia.</div>'}</div>`;
-  }
-
-  function fichaAfter() {
-    drawCardPreview();
-    const cb = $('[data-card-ids]');
-    if (cb) cb.onchange = async () => { state.settings.cardIds = cb.checked; await saveSettings(); render(); };
-  }
-
   function fichaForm() {
     const s = state.settings;
     const opt = (list, v) => `<option value="">—</option>` + list.map(o => `<option ${v === o ? 'selected' : ''}>${o}</option>`).join('');
     modal({
-      title: 'Mi ficha médica',
+      title: 'Datos del paciente',
       body: `
         <div class="form-section">Datos personales</div>
         <label class="field"><span>Nombre completo</span><input name="name" required autocomplete="name" value="${esc(s.name)}"></label>
@@ -1564,45 +1409,9 @@
           doctor: f.doctor.value.trim(), doctorPhone: f.doctorPhone.value.trim()
         });
         await saveSettings();
-        render(); toast('Ficha guardada', 'check');
+        render(); toast('Datos guardados', 'check');
       }
     });
-  }
-
-  function cardData() {
-    const d = fichaPdfData(), s = state.settings;
-    return Object.assign(d, {
-      birthShort: s.birth ? s.birth.split('-').reverse().join('/') : '',
-      updated: new Date().toLocaleDateString('es', { day: '2-digit', month: '2-digit', year: 'numeric' }),
-      includeIds: !!s.cardIds,
-      meds: d.meds.map(m => Object.assign({}, m, { schedule: m.schedule.replace(/ — todos los días$/, ' diario') }))
-    });
-  }
-
-  async function drawCardPreview() {
-    const img = $('#medCardImg');
-    if (!img) return;
-    try {
-      await MedCard.load();
-      if (document.fonts && document.fonts.ready) await document.fonts.ready;
-      img.src = MedCard.preview(cardData(), state.cardFace);
-      img.hidden = false; $('#medCardPh').hidden = true;
-    } catch (e) { $('#medCardPh').textContent = e.message; }
-  }
-
-  function fichaPdfData() {
-    const p = profile(), s = p.s;
-    return {
-      name: s.name, age: p.age, sex: SEX[s.sex] || '', birth: s.birth ? fmtDate(s.birth, { day: 'numeric', month: 'long', year: 'numeric' }) : '',
-      blood: s.blood, curp: s.curp, nss: s.nss, institution: s.institution, clinic: s.clinic,
-      height: s.height ? s.height + ' cm' : '', weight: p.weight ? p.weight + ' kg' : '',
-      bmi: p.bmi ? `${p.bmi.value} (${p.bmi.label})` : '',
-      lastBP: p.lastBP ? `${p.lastBP.sys}/${p.lastBP.dia} mmHg · ${p.bpCat.label} (${fmtDate(p.lastBP.date, { day: 'numeric', month: 'short', year: 'numeric' })})` : '',
-      conditions: p.conditions, allergies: p.allergies, notes: s.fichaNotes,
-      meds: p.meds.map(m => ({ name: m.name, dose: doseLabel(m), schedule: schedLabel(m) })),
-      emName: s.emName, emRel: s.emRel, emPhone: s.emPhone, doctor: s.doctor, doctorPhone: s.doctorPhone,
-      generated: new Date().toLocaleString('es', { dateStyle: 'long', timeStyle: 'short' })
-    };
   }
 
   // ======================================================
@@ -1648,10 +1457,9 @@
       <div class="stack-v">
         ${accountCard()}
         <div class="card">
-          <div class="card-head"><h3>${icon('user')} Perfil y ficha médica</h3></div>
+          <div class="card-head"><h3>${icon('user')} Datos del paciente</h3></div>
           <p class="small muted" style="margin-top:0">Tu nombre, edad, tipo de sangre, padecimientos y alergias aparecen en los reportes.</p>
-          <div class="row"><a class="btn outline" href="#/ficha">${icon('user')} Ver mi ficha</a>
-            <button class="btn ghost" data-act="edit-ficha">${icon('edit')} Editar</button></div>
+          <button class="btn outline" data-act="edit-ficha">${icon('edit')} Editar datos</button>
         </div>
         <div class="card">
           <div class="card-head"><h3>${icon('bell')} Notificaciones</h3><span class="chip" style="${ns.ok ? 'color:var(--ok)' : ''}">${ns.txt}</span></div>
@@ -1847,41 +1655,6 @@
     },
     theme: el => setTheme(el.dataset.v),
     'edit-ficha': () => fichaForm(),
-    'toggle-ids': () => { state.showIds = !state.showIds; render(); },
-    'card-face': el => { state.cardFace = el.dataset.v; render(); },
-    'card-img': async el => {
-      const label = el.innerHTML;
-      el.disabled = true; el.innerHTML = 'Generando…';
-      try {
-        await MedCard.load();
-        const blob = await MedCard.image(cardData());
-        const nm = (state.settings.name || 'paciente').normalize('NFD').replace(/[^\w]+/g, '-').replace(/^-|-$/g, '');
-        await deliverFile(blob, `Tarjeta-medica_${nm}.png`, 'Tarjeta médica');
-      } catch (e) { console.error(e); toast(e.message || 'No se pudo generar la imagen'); }
-      finally { el.disabled = false; el.innerHTML = label; }
-    },
-    'card-pdf': async el => {
-      const label = el.innerHTML;
-      el.disabled = true; el.innerHTML = 'Generando…';
-      try {
-        await Promise.all([MedCard.load(), ReportPDF.load()]);
-        const blob = MedCard.pdf(cardData());
-        const nm = (state.settings.name || 'paciente').normalize('NFD').replace(/[^\w]+/g, '-').replace(/^-|-$/g, '');
-        await deliverFile(blob, `Tarjeta-medica-imprimible_${nm}.pdf`, 'Tarjeta médica para imprimir');
-      } catch (e) { console.error(e); toast(e.message || 'No se pudo generar el PDF'); }
-      finally { el.disabled = false; el.innerHTML = label; }
-    },
-    'ficha-pdf': async el => {
-      const label = el.innerHTML;
-      el.disabled = true; el.innerHTML = 'Generando…';
-      try {
-        await ReportPDF.load();
-        const blob = ReportPDF.buildCard(fichaPdfData());
-        const nm = (state.settings.name || 'paciente').normalize('NFD').replace(/[^\w]+/g, '-').replace(/^-|-$/g, '');
-        await deliverFile(blob, `Ficha-medica_${nm}.pdf`, 'Ficha médica');
-      } catch (e) { console.error(e); toast(e.message || 'No se pudo generar el PDF'); }
-      finally { el.disabled = false; el.innerHTML = label; }
-    },
     logout: async () => {
       if (!(await confirmDlg('Cerrar sesión', 'Tus datos seguirán guardados en tu cuenta. En este dispositivo se borrará la copia local y dejarás de recibir recordatorios hasta que vuelvas a iniciar sesión.', 'Cerrar sesión'))) return;
       await pushUnsubscribe();
@@ -1945,7 +1718,7 @@
   $('#themeBtn').onclick = () => setTheme(isDark() ? 'light' : 'dark');
   $('#bellBtn').onclick = () => openNotifCenter();
   $('#installBtn').onclick = () => actions.install();
-  $('#accountBtn').onclick = () => { location.hash = '#/ficha'; };
+  $('#accountBtn').onclick = () => { location.hash = '#/ajustes'; };
 
   // ======================================================
   //  NOTIFICACIONES
