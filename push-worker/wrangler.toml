@@ -18,4 +18,5 @@ VAPID_PUBLIC_KEY = "BJZ5dh3PvqXVygy7zdx7zl2WskHf-7LoaJ_FKR4n8NtRfWYBj2mFBZVGaxF9
 VAPID_SUBJECT = "https://misaelzepeda.github.io/latidia/"
 ALLOWED_ORIGINS = "https://misaelzepeda.github.io,http://localhost:5173"
 
-# Secreto (no va en el repositorio): npx wrangler secret put VAPID_PRIVATE_JWK
+# Secretos (no van en el repositorio): npx wrangler secret put VAPID_PRIVATE_JWK
+#                                      npx wrangler secret put ADMIN_KEY   (para /broadcast)

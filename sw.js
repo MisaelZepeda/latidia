@@ -1,7 +1,7 @@
 /* Latidia — service worker: caché offline + notificaciones */
 importScripts('js/core.js');
 
-const CACHE = 'latidia-v15';
+const CACHE = 'latidia-v16';
 // Librerías externas versionadas (no cambian): caché primero
 const CDN = ['https://www.gstatic.com/firebasejs/', 'https://cdn.jsdelivr.net/npm/'];
 const ASSETS = [
@@ -73,6 +73,8 @@ self.addEventListener('push', e => {
   let d = {};
   try { d = e.data ? e.data.json() : {}; } catch (_) { d = { title: 'Latidia', body: e.data && e.data.text() }; }
   e.waitUntil((async () => {
+    // Aviso de nueva versión: descarga la actualización en segundo plano
+    if (d.data && d.data.kind === 'update') { try { await self.registration.update(); } catch (_) {} }
     await self.registration.showNotification(d.title || 'Latidia', {
       body: d.body || '', tag: d.tag || undefined, data: d.data || {}, actions: d.actions || [],
       requireInteraction: !!d.requireInteraction, renotify: !!d.tag,
@@ -122,6 +124,12 @@ self.addEventListener('notificationclick', e => {
     }
     const url = new URL(data.url || './', self.registration.scope).href;
     const wins = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    // Nueva versión: recarga la app abierta para que tome los archivos nuevos
+    if (data.kind === 'update' && wins.length) {
+      for (const w of wins) if ('navigate' in w) await w.navigate(url).catch(() => {});
+      if ('focus' in wins[0]) await wins[0].focus();
+      return;
+    }
     for (const w of wins) {
       if ('focus' in w) { await w.focus(); if ('navigate' in w) w.navigate(url).catch(() => {}); return; }
     }

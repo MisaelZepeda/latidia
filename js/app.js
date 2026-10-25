@@ -2125,7 +2125,19 @@
         });
         if (typeof Notification !== 'undefined' && Notification.permission === 'granted') registerPeriodicSync();
         checkReminders();
+        // Busca versión nueva cada vez que vuelves a la app (en iPhone queda suspendida, no se recarga)
+        document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') reg.update().catch(() => {}); });
+        setInterval(() => reg.update().catch(() => {}), 3600000);
       }).catch(e => console.warn('SW no registrado', e));
+      // Cuando se instala una versión nueva: recarga sola, o pregunta si estás llenando un formulario
+      const hadController = !!navigator.serviceWorker.controller;
+      let reloading = false;
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (!hadController || reloading) return;
+        const go = () => { reloading = true; location.reload(); };
+        if ($('#modal').open) toast('Hay una nueva versión de Latidia', 'info', { label: 'Actualizar', fn: go });
+        else go();
+      });
     }
     await Cloud.ready;
     splash.remove();

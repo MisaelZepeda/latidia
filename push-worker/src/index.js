@@ -130,6 +130,25 @@ async function handle(req, env) {
   let body = {};
   if (req.method === 'POST') { try { body = await req.json(); } catch (_) { return json({ error: 'json' }, 400, H); } }
 
+  // Aviso de nueva versión a todos los dispositivos (solo con la clave de administrador)
+  if (url.pathname === '/broadcast' && req.method === 'POST') {
+    const auth = req.headers.get('Authorization') || '';
+    if (!env.ADMIN_KEY || auth !== 'Bearer ' + env.ADMIN_KEY) return json({ error: 'no autorizado' }, 401, H);
+    const msg = {
+      title: String(body.title || '✨ Latidia se actualizó').slice(0, 120),
+      body: String(body.body || 'Toca para abrir la nueva versión.').slice(0, 300),
+      tag: 'app-update', data: { kind: 'update', url: './#/inicio' }
+    };
+    let delivered = 0;
+    for (const uid of (await env.PUSH.get('users', 'json')) || []) {
+      const u = await getUser(env, uid);
+      const r = await sendToUser(u, msg, env);
+      delivered += r.delivered;
+      if (r.changed) await putUser(env, uid, u);
+    }
+    return json({ ok: true, delivered }, 200, H);
+  }
+
   // Acciones desde el service worker (sin sesión): se autentican con el secreto del dispositivo
   if (url.pathname === '/device-action') {
     const { uid, deviceId, secret, action, id, minutes, title, body: text, data, actions } = body;
