@@ -190,7 +190,7 @@
     { id: 'medicamentos', label: 'Medicinas', title: 'Medicamentos', icon: 'pill', render: renderMeds, fab: () => medForm() },
     { id: 'agenda', label: 'Agenda', title: 'Agenda médica', icon: 'calendar', render: renderAgenda, fab: () => apptForm(null, state.calSel) },
     { id: 'resumen', label: 'Resumen', title: 'Resumen', icon: 'chat', render: renderSummary, after: () => summaryAfter(), group: 'mas', sub: 'Tu semana y lo que llevarás a la consulta' },
-    { id: 'habitos', label: 'Hábitos', title: 'Hábitos', icon: 'flame', render: renderHabits, after: () => habitsAfter(), group: 'mas', sub: 'Peso, ejercicio, sal, café y rachas' },
+    { id: 'habitos', label: 'Hábitos', title: 'Hábitos', icon: 'flame', render: renderHabits, group: 'mas', sub: 'Sal, café y rachas' },
     { id: 'analisis', label: 'Análisis', title: 'Análisis de laboratorio', icon: 'flask', render: renderLabs, after: () => labsAfter(), fab: () => labChooser(), group: 'mas', sub: 'Resultados de laboratorio' },
     { id: 'reportes', label: 'Reportes', title: 'Reportes', icon: 'report', render: renderReports, group: 'mas', sub: 'PDF y Excel por fechas' },
     { id: 'ajustes', label: 'Ajustes', title: 'Ajustes', icon: 'settings', render: renderSettings, group: 'mas', sub: 'Cuenta, notificaciones y respaldo' },
@@ -326,7 +326,7 @@
     medicamentos: { label: 'Medicamentos de hoy', icon: 'pill' },
     citas: { label: 'Próximas citas y exámenes', icon: 'calendar' },
     tendencia: { label: 'Tendencia de presión (14 días)', icon: 'activity', wide: true },
-    habitos: { label: 'Hábitos de hoy (ejercicio, sal, café y rachas)', icon: 'flame' }
+    habitos: { label: 'Hábitos de hoy (sal, café y rachas)', icon: 'flame' }
   };
   function homeLayout() {
     const order = (state.settings.homeOrder || []).filter(id => HOME_WIDGETS[id]);
@@ -481,19 +481,11 @@
   // ======================================================
   const habitGoals = () => {
     const s = state.settings;
-    return { exercise: +s.exerciseGoal || 150, salt: s.saltMax != null ? +s.saltMax : 1, coffee: s.coffeeMax != null ? +s.coffeeMax : 2, weight: +s.weightGoal || null };
+    return { salt: s.saltMax != null ? +s.saltMax : 1, coffee: s.coffeeMax != null ? +s.coffeeMax : 2 };
   };
   const habitsOn = (date, type) => state.habits.filter(h => h.date === date && h.type === type);
   const habitSum = (date, type) => habitsOn(date, type).reduce((t, h) => t + (+h.value || 0), 0);
   const lastDays = n => Array.from({ length: n }, (_, i) => addDays(today(), i - n + 1));
-
-  // Peso: registros de Signos vitales + los de Hábitos
-  function weightSeries() {
-    const a = state.vitals.filter(v => v.weight).map(v => ({ date: v.date, time: v.time, w: +v.weight }));
-    const b = state.habits.filter(h => h.type === 'weight').map(h => ({ date: h.date, time: h.at.slice(11, 16), w: +h.value }));
-    return a.concat(b).sort((x, y) => (x.date + x.time).localeCompare(y.date + y.time));
-  }
-  const weightAt = (series, ds) => { let w = null; for (const x of series) if (x.date <= ds) w = x.w; return w; };
 
   // Rachas: test(ds) → true (cumplido), false (no cumplido) o null (sin datos ese día: no cuenta ni rompe)
   function streakInfo(test) {
@@ -525,8 +517,7 @@
 
   function habitsCard() {
     const g = habitGoals(), d = today();
-    const ex = habitSum(d, 'exercise'), salt = habitSum(d, 'salt'), coffee = habitSum(d, 'coffee');
-    const weekEx = lastDays(7).reduce((t, x) => t + habitSum(x, 'exercise'), 0);
+    const salt = habitSum(d, 'salt'), coffee = habitSum(d, 'coffee');
     const sm = streakInfo(medsDayOk), sw = state.water.length ? streakInfo(waterDayOk) : null;
     return `<div class="card">
       <div class="card-head"><h3>${icon('flame')} Hábitos de hoy</h3><a href="#/habitos" class="small">Ver más</a></div>
@@ -534,26 +525,23 @@
         ${state.meds.length ? `<div class="streak"><span class="flame ${sm.cur ? 'on' : ''}">${icon('flame')}</span><div><b>${streakTxt(sm.cur)}</b><div class="small muted">con todas tus dosis</div></div></div>` : ''}
         ${sw ? `<div class="streak"><span class="flame ${sw.cur ? 'on' : ''}">${icon('droplet')}</span><div><b>${streakTxt(sw.cur)}</b><div class="small muted">con tu meta de agua</div></div></div>` : ''}
       </div>
-      ${habitCounter('exercise', ex, g)}
       ${habitCounter('salt', salt, g)}
       ${habitCounter('coffee', coffee, g)}
-      <div class="small muted" style="margin-top:8px">Ejercicio esta semana: <b>${weekEx}</b> de ${g.exercise} min</div>
     </div>`;
   }
   const HABIT_DEF = {
-    exercise: { label: 'Ejercicio', icon: 'run', unit: 'min', step: 10 },
     salt: { label: 'Comidas saladas', icon: 'alert', unit: '', step: 1, hint: 'Embutidos, enlatados, botanas, sopas instantáneas…' },
     coffee: { label: 'Café', icon: 'coffee', unit: 'taza', step: 1 }
   };
   function habitCounter(type, v, g) {
     const D = HABIT_DEF[type];
     const over = type === 'salt' ? v > g.salt : type === 'coffee' ? v > g.coffee : false;
-    const sub = type === 'exercise' ? `${v} min hoy` : `${v} de máx. ${type === 'salt' ? g.salt : g.coffee} ${type === 'coffee' ? (g.coffee === 1 ? 'taza' : 'tazas') : ''}`;
+    const sub = `${v} de máx. ${type === 'salt' ? g.salt : g.coffee} ${type === 'coffee' ? (g.coffee === 1 ? 'taza' : 'tazas') : ''}`;
     return `<div class="habit-row">
       <div class="item-ic" style="background:${over ? 'var(--danger-soft)' : 'var(--surface-2)'};color:${over ? 'var(--danger)' : 'inherit'}">${icon(D.icon)}</div>
       <div class="item-body"><div class="item-title" style="font-weight:500">${D.label}</div><div class="small" style="color:${over ? 'var(--danger)' : 'var(--muted)'}">${sub}</div></div>
       <button class="icon-btn" data-act="habit-minus" data-type="${type}" aria-label="Quitar" ${v ? '' : 'disabled'}>${icon('x')}</button>
-      <button class="btn ghost small" data-act="habit-add" data-type="${type}" data-v="${D.step}">+${D.step}${type === 'exercise' ? ' min' : ''}</button>
+      <button class="btn ghost small" data-act="habit-add" data-type="${type}" data-v="${D.step}">+${D.step}</button>
     </div>`;
   }
   async function addHabit(type, value) {
@@ -562,7 +550,7 @@
     const rec = { id: uid(), date: today(), at: today() + 'T' + timeKey(new Date()), type, value };
     await DB.put('habits', rec);
     await load(); render();
-    const msg = type === 'weight' ? `Peso: ${value} kg` : type === 'exercise' ? `+${value} min de ejercicio` : type === 'salt' ? 'Comida salada registrada' : 'Café registrado';
+    const msg = type === 'salt' ? 'Comida salada registrada' : 'Café registrado';
     toast(msg, 'check', { label: 'Deshacer', fn: async () => { await DB.del('habits', rec.id); await load(); render(); } });
   }
   async function removeLastHabit(type) {
@@ -574,14 +562,7 @@
 
   function renderHabits() {
     const g = habitGoals(), d = today();
-    const ws = weightSeries(), cur = ws.length ? ws[ws.length - 1] : null;
-    const prev30 = weightAt(ws, addDays(d, -30));
-    const h = +state.settings.height;
-    const bmi = cur && h ? Math.round(cur.w / Math.pow(h / 100, 2) * 10) / 10 : null;
     const days = lastDays(7);
-    const exBars = days.map(x => ({ x, v: habitSum(x, 'exercise') }));
-    const exTop = Math.max(30, ...exBars.map(b => b.v));
-    const weekEx = exBars.reduce((t, b) => t + b.v, 0);
     const sm = streakInfo(medsDayOk), sw = state.water.length ? streakInfo(waterDayOk) : null;
     const dots = (type, max) => days.map(x => { const v = habitSum(x, type); return `<div class="hdot ${v > max ? 'bad' : v ? 'ok' : ''}" title="${esc(fmtDate(x))}: ${v}"><span>${v}</span><small>${cap(fmtDate(x, { weekday: 'narrow' }))}</small></div>`; }).join('');
     return `
@@ -589,29 +570,6 @@
       <div class="row between"><p class="small muted" style="margin:0">Solo para ti: estos datos no aparecen en los reportes.</p>
         <button class="btn ghost small" data-act="habit-goals">${icon('settings')} Metas</button></div>
       <div class="grid cols-2" style="align-items:start">
-        <div class="card">
-          <div class="card-head"><h3>${icon('scale')} Peso</h3><button class="btn small" data-act="habit-weight">${icon('plus')} Registrar</button></div>
-          <div class="row" style="gap:20px;align-items:flex-end">
-            <div><div class="water-total num" style="color:var(--text)">${cur ? String(cur.w).replace('.', ',') + ' kg' : '—'}</div><div class="small muted">${cur ? relDay(cur.date) : 'Sin registros'}</div></div>
-            ${g.weight ? `<div><div class="small muted">Meta</div><b>${String(g.weight).replace('.', ',')} kg</b>${cur ? `<div class="small" style="color:${Math.abs(cur.w - g.weight) < 0.5 ? 'var(--ok)' : 'var(--muted)'}">${Math.abs(cur.w - g.weight) < 0.5 ? '✅ En tu meta' : `Te faltan ${String(Math.round(Math.abs(cur.w - g.weight) * 10) / 10).replace('.', ',')} kg`}</div>` : ''}</div>` : `<button class="link-btn small" data-act="habit-goals">Poner meta</button>`}
-            ${bmi ? `<div><div class="small muted">IMC</div><b>${String(bmi).replace('.', ',')}</b><div class="small muted">${bmi < 18.5 ? 'Bajo peso' : bmi < 25 ? 'Normal' : bmi < 30 ? 'Sobrepeso' : 'Obesidad'}</div></div>` : ''}
-            ${cur && prev30 != null && prev30 !== cur.w ? `<div><div class="small muted">30 días</div><b>${cur.w > prev30 ? '+' : ''}${String(Math.round((cur.w - prev30) * 10) / 10).replace('.', ',')} kg</b></div>` : ''}
-          </div>
-          <div data-chart="weight" style="margin-top:12px"></div>
-        </div>
-
-        <div class="card">
-          <div class="card-head"><h3>${icon('run')} Ejercicio</h3><span class="small muted">Meta ${g.exercise} min/semana</span></div>
-          <div class="water-top">
-            <div><div class="water-total num">${weekEx} min</div><div class="small muted">últimos 7 días</div></div>
-            <div class="water-week">${exBars.map(b => `<div class="wbar" title="${b.v} min"><div class="wbar-track"><div style="height:${Math.round(b.v * 100 / exTop)}%;background:${b.v ? 'var(--ok)' : 'var(--surface-2)'}"></div></div><span>${cap(fmtDate(b.x, { weekday: 'narrow' }))}</span></div>`).join('')}</div>
-          </div>
-          <div class="progress water-progress"><div style="width:${Math.min(100, weekEx * 100 / g.exercise)}%;background:linear-gradient(90deg,#22c55e,#16a34a)"></div></div>
-          <div class="small" style="margin:6px 0 12px;color:${weekEx >= g.exercise ? 'var(--ok)' : 'var(--muted)'}">${weekEx >= g.exercise ? '✅ Cumpliste tu meta semanal' : `Te faltan ${g.exercise - weekEx} min esta semana`}</div>
-          <div class="water-btns">${[10, 20, 30].map(n => `<button class="btn ghost" data-act="habit-add" data-type="exercise" data-v="${n}">+${n} min</button>`).join('')}<button class="btn ghost" data-act="habit-custom" data-type="exercise">Otro</button></div>
-          <div class="small muted" style="margin-top:8px">Hoy: ${habitSum(d, 'exercise')} min</div>
-        </div>
-
         <div class="card">
           <div class="card-head"><h3>${icon('coffee')} Sal y café</h3></div>
           ${habitCounter('salt', habitSum(d, 'salt'), g)}
@@ -633,32 +591,18 @@
       </div>
     </div>`;
   }
-  function habitsAfter() {
-    const el = $('[data-chart="weight"]');
-    if (!el) return;
-    const ws = weightSeries().filter(x => x.date > addDays(today(), -180));
-    const g = habitGoals();
-    const pts = ws.map(x => ({ x: at(x.date, x.time || '12:00'), y: x.w }));
-    const series = [{ name: 'Peso (kg)', color: 'var(--primary)', points: pts }];
-    if (g.weight && pts.length) series.push({ name: 'Meta', color: 'var(--ok)', dashed: true, points: [{ x: pts[0].x, y: g.weight }, { x: pts[pts.length - 1].x, y: g.weight }] });
-    el.innerHTML = pts.length ? Charts.lineChart({ width: el.clientWidth, height: 200, label: 'Peso', series }) : '<div class="small muted">Registra tu peso para ver la gráfica.</div>';
-  }
   function habitGoalsForm() {
     const g = habitGoals();
     modal({
       title: 'Metas de hábitos',
       body: `<div class="fields">
-          <label class="field"><span>Peso meta (kg)</span><input type="number" name="weight" inputmode="decimal" min="20" max="300" step="0.1" value="${g.weight || ''}" placeholder="Opcional"></label>
-          <label class="field"><span>Ejercicio (min/semana)</span><input type="number" name="exercise" inputmode="numeric" min="10" max="2000" step="10" value="${g.exercise}" required></label>
-        </div>
-        <div class="fields">
           <label class="field"><span>Comidas saladas (máx/día)</span><input type="number" name="salt" inputmode="numeric" min="0" max="10" value="${g.salt}" required></label>
           <label class="field"><span>Tazas de café (máx/día)</span><input type="number" name="coffee" inputmode="numeric" min="0" max="10" value="${g.coffee}" required></label>
         </div>
-        <p class="small muted" style="margin:0">Se recomiendan 150 minutos de actividad moderada por semana (por ejemplo, 30 min de caminata 5 días). Ajusta las metas con tu médico.</p>`,
+        <p class="small muted" style="margin:0">Ajusta los límites con tu médico.</p>`,
       onSubmit: async f => {
         if (!f.reportValidity()) return false;
-        Object.assign(state.settings, { weightGoal: f.weight.value ? +f.weight.value : null, exerciseGoal: +f.exercise.value, saltMax: +f.salt.value, coffeeMax: +f.coffee.value });
+        Object.assign(state.settings, { saltMax: +f.salt.value, coffeeMax: +f.coffee.value });
         await saveSettings(); render(); toast('Metas guardadas', 'check');
       }
     });
@@ -672,8 +616,6 @@
     const bp = vit.filter(v => v.sys && v.dia);
     const ad = state.meds.length ? adherence(from, to) : null;
     const days = []; for (let ds = from; ds <= to; ds = addDays(ds, 1)) days.push(ds);
-    const ws = weightSeries();
-    const w1 = weightAt(ws, addDays(from, -1)) ?? ws.find(x => x.date >= from && x.date <= to)?.w ?? null, w2 = weightAt(ws, to);
     const sum = type => days.reduce((t, x) => t + habitSum(x, type), 0);
     return {
       n: bp.length, sys: avg(bp.map(v => v.sys)), dia: avg(bp.map(v => v.dia)),
@@ -681,15 +623,12 @@
       urgent: bp.filter(isUrgentBP).length, parts: dayParts(vit), ad,
       waterOk: state.water.length ? days.filter(x => x <= today() && waterSum(x) >= waterGoal().min).length : null,
       days: days.filter(x => x <= today()).length,
-      exercise: sum('exercise'), salt: sum('salt'), coffee: sum('coffee'),
-      weight: w2, weightDiff: w1 != null && w2 != null ? Math.round((w2 - w1) * 10) / 10 : null
+      salt: sum('salt'), coffee: sum('coffee')
     };
   }
   const lastConsult = () => state.appts.filter(a => a.type === 'consulta' && (a.done || a.date < today())).sort((a, b) => b.date.localeCompare(a.date))[0] || null;
   const nextConsult = () => state.appts.filter(a => a.type === 'consulta' && !a.done && a.date >= today())[0] || null;
   const summarySince = () => { const lc = lastConsult(); return lc ? lc.date : addDays(today(), -30); };
-  const kg = v => String(v).replace('.', ',') + ' kg';
-  const signed = v => (v > 0 ? '+' : '') + String(v).replace('.', ',');
 
   function summaryText(kind) {
     const s = state.settings, lines = [];
@@ -699,8 +638,6 @@
       if (w.n) lines.push(`• Presión promedio: ${w.sys}/${w.dia} mmHg (${w.n} tomas)`);
       if (w.ad && w.ad.scheduled) lines.push(`• Dosis tomadas: ${w.ad.pct}% (${w.ad.taken}/${w.ad.scheduled})`);
       if (w.waterOk != null) lines.push(`• Meta de agua: ${w.waterOk} de ${w.days} días`);
-      lines.push(`• Ejercicio: ${w.exercise} min`);
-      if (w.weightDiff != null) lines.push(`• Peso: ${kg(w.weight)} (${signed(w.weightDiff)} kg)`);
       return lines.join('\n');
     }
     const from = summarySince(), w = periodStats(from, today()), nc = nextConsult();
@@ -718,7 +655,6 @@
     }
     const ch = medChanges(from);
     if (ch.length) { lines.push('\nCambios en medicamentos:'); for (const c of ch) lines.push(`  ${c.text}`); }
-    if (w.weightDiff != null) lines.push(`\nPeso: ${kg(w.weight)} (${signed(w.weightDiff)} kg)`);
     const labs = state.labs.filter(l => l.date >= from);
     for (const l of labs) {
       const out = (l.items || []).filter(it => ['high', 'low'].includes(labFlag(it)));
@@ -750,7 +686,6 @@
     const lc = lastConsult(), nc = nextConsult();
     const qs = state.settings.questions || [];
     const sm = state.meds.length ? streakInfo(medsDayOk) : null;
-    const g = habitGoals();
     const diff = w.n && pw.n ? w.sys - pw.sys : null;
     const tile = (ic, color, label, value, sub) => `<div class="card stat">${statIc(ic, color)}<div style="min-width:0"><div class="label">${label}</div><div class="value num">${value}</div>${sub ? `<div class="small muted">${sub}</div>` : ''}</div></div>`;
     const ch = medChanges(from);
@@ -764,8 +699,6 @@
           ${tile('heart', 'var(--sys)', 'Presión promedio', w.n ? `${w.sys}/${w.dia}` : '—', diff == null ? `${w.n} tomas` : `<span style="color:${diff > 2 ? 'var(--danger)' : diff < -2 ? 'var(--ok)' : 'inherit'}">${diff > 0 ? '▲' : diff < 0 ? '▼' : '='} ${Math.abs(diff)} vs. semana anterior</span>`)}
           ${w.ad && w.ad.scheduled ? tile('pill', 'var(--primary)', 'Dosis tomadas', w.ad.pct + '%', `${w.ad.taken} de ${w.ad.scheduled}`) : ''}
           ${w.waterOk != null ? tile('droplet', '#0ea5e9', 'Meta de agua', `${w.waterOk}/${w.days}`, 'días cumplidos') : ''}
-          ${tile('run', 'var(--ok)', 'Ejercicio', `${w.exercise} min`, `meta ${g.exercise}`)}
-          ${w.weight != null ? tile('scale', 'var(--warn)', 'Peso', kg(w.weight), w.weightDiff ? `${signed(w.weightDiff)} kg en la semana` : '') : ''}
           ${tile('coffee', 'var(--pulse)', 'Café / sal', `${(w.coffee / w.days).toFixed(1).replace('.', ',')} / ${(w.salt / w.days).toFixed(1).replace('.', ',')}`, 'promedio al día')}
           ${sm ? tile('flame', '#f97316', 'Racha de dosis', streakTxt(sm.cur), `récord ${streakTxt(sm.best)}`) : ''}
         </div>
@@ -787,7 +720,6 @@
             ${c.ad && c.ad.per.length ? `<div class="small">Tomaste el <b>${c.ad.pct}%</b> de tus dosis${c.ad.scheduled - c.ad.taken ? ` · ${c.ad.scheduled - c.ad.taken} sin tomar` : ''}</div>
               ${c.ad.per.map(p => `<div class="small muted">${esc(p.med.name)}: ${Math.round(p.taken * 100 / p.scheduled)}%</div>`).join('')}` : '<div class="small muted">Sin dosis en este periodo.</div>'}
             ${ch.length ? `<h4 class="sum-h">Cambios en medicamentos</h4>${ch.map(x => `<div class="small muted">${esc(x.text)}</div>`).join('')}` : ''}
-            ${c.weightDiff != null ? `<h4 class="sum-h">Peso</h4><div class="small">${kg(c.weight)} <span class="muted">(${c.weightDiff ? signed(c.weightDiff) + ' kg' : 'sin cambio'})</span></div>` : ''}
             ${labs.length ? `<h4 class="sum-h">Análisis</h4>${labs.map(l => { const out = (l.items || []).filter(it => ['high', 'low'].includes(labFlag(it))); return `<div class="small muted">${fmtDate(l.date, { day: 'numeric', month: 'short' })}: ${out.length ? out.map(it => esc(it.name) + ' ' + esc(it.value)).join(', ') + ' fuera de rango' : 'todo en rango'}</div>`; }).join('')}` : ''}
           </div>
           <div>
@@ -873,7 +805,7 @@
   }
 
   // Contexto de cada toma y qué factores coinciden con presión más alta
-  const VITAL_TAGS = [['cafe', '☕ Café'], ['estres', '😟 Estrés'], ['sal', '🧂 Comida salada'], ['ejercicio', '🏃 Ejercicio'],
+  const VITAL_TAGS = [['cafe', '☕ Café'], ['estres', '😟 Estrés'], ['sal', '🧂 Comida salada'],
     ['dolor', '🤕 Dolor de cabeza'], ['sueno', '😴 Dormí mal'], ['sin_med', '💊 Sin medicamento'], ['alcohol', '🍺 Alcohol']];
   const tagLabel = id => (VITAL_TAGS.find(t => t[0] === id) || [id, id])[1];
   function triggersCard(list) {
@@ -2376,20 +2308,6 @@
     'habit-add': el => addHabit(el.dataset.type, el.dataset.v),
     'habit-minus': el => removeLastHabit(el.dataset.type),
     'habit-goals': () => habitGoalsForm(),
-    'habit-custom': el => modal({
-      title: 'Agregar ejercicio',
-      body: `<label class="field"><span>Minutos</span><input type="number" name="v" inputmode="numeric" min="1" max="600" value="45" required></label>`,
-      onSubmit: f => { if (!f.reportValidity()) return false; setTimeout(() => addHabit(el.dataset.type, f.v.value), 0); }
-    }),
-    'habit-weight': () => {
-      const ws = weightSeries();
-      modal({
-        title: 'Registrar peso',
-        body: `<label class="field"><span>Peso (kg)</span><input type="number" name="v" inputmode="decimal" min="20" max="300" step="0.1" value="${ws.length ? ws[ws.length - 1].w : ''}" required></label>
-          <p class="small muted" style="margin:0">Se guarda en Hábitos (no aparece en los reportes).</p>`,
-        onSubmit: f => { if (!f.reportValidity()) return false; setTimeout(() => addHabit('weight', f.v.value), 0); }
-      });
-    },
     'share-week': () => shareText('Mi semana en Latidia', summaryText('week')),
     'share-consult': () => shareText('Resumen para mi consulta', summaryText('consult')),
     'summary-pdf': () => { state.report = { preset: '', from: summarySince(), to: today(), meds: true, labs: true }; location.hash = '#/reportes'; },
