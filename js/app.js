@@ -265,12 +265,8 @@
     }
 
     const cat = last && bpCategory(last.sys, last.dia);
-    return `
-    <div class="stack-v">
-      <div><div class="muted">${cap(fmtLong(today()))}</div><h2 style="font-size:1.5rem">${greet}${s.name ? ', ' + esc(s.name.split(' ')[0]) : ''} 👋</h2></div>
-      ${banners.join('')}
-      <div class="grid cols-2">
-        <div class="card hero">
+    const W = {
+      presion: () => `<div class="card hero">
           <div class="row between"><span class="row" style="gap:8px">${icon('heart')}<b>Última presión</b></span>
           ${last ? `<span class="chip">${relDay(last.date)} · ${last.time}</span>` : ''}</div>
           ${last ? `
@@ -278,38 +274,91 @@
             <div class="row">${last.pulse ? `<span class="chip">${icon('pulse')} ${last.pulse} lpm</span>` : ''}<span class="chip"><span class="dot" style="color:${cat.color}"></span>${cat.label}</span></div>`
             : `<div style="margin:18px 0" class="muted">Aún no tienes registros. Registra tu primera toma.</div>`}
           <div style="margin-top:16px;position:relative;z-index:1"><button class="btn" style="background:#fff;color:#1d4ed8" data-act="new-vital">${icon('plus')} Registrar toma</button></div>
-        </div>
-        <div class="grid stats">
+        </div>`,
+      resumen: () => `<div class="grid stats">
           <div class="card stat">${statIc('trend', 'var(--sys)')}<div><div class="label">Promedio 7 días</div><div class="value num">${wBP.length ? `${avg(wBP.map(v => v.sys))}/${avg(wBP.map(v => v.dia))}` : '—'}</div></div></div>
           <div class="card stat">${statIc('pulse', 'var(--pulse)')}<div><div class="label">Pulso promedio</div><div class="value num">${wP.length ? avg(wP.map(v => v.pulse)) : '—'} <small>lpm</small></div></div></div>
           <div class="card stat">${statIc('pill', 'var(--primary)')}<div><div class="label">Dosis de hoy</div><div class="value num">${takenN}/${doses.length}</div></div></div>
           <div class="card stat">${statIc('calendar', 'var(--warn)')}<div style="min-width:0"><div class="label">Próxima cita</div><div class="value" style="font-size:1rem">${next ? relDay(next.date) + (next.time ? ' ' + next.time : '') : '—'}</div></div></div>
-        </div>
-      </div>
-
-      ${waterCard()}
-
-      <div class="grid cols-2">
-        <div class="card">
+        </div>`,
+      agua: () => waterCard(),
+      medicamentos: () => `<div class="card">
           <div class="card-head"><h3>${icon('pill')} Medicamentos de hoy</h3><a href="#/medicamentos" class="small">Ver todo</a></div>
           ${doses.length ? `<div class="progress" style="margin-bottom:6px"><div style="width:${Math.round(takenN * 100 / doses.length)}%"></div></div>
             <div class="small muted" style="margin-bottom:4px">${takenN} de ${doses.length} tomada${doses.length === 1 ? '' : 's'}${skippedN ? ` · ${skippedN} omitida${skippedN === 1 ? '' : 's'}` : ''}${takenN + skippedN ? ` · <a href="#/medicamentos" data-act="meds-today">Ver o modificar</a>` : ''}</div>
             ${pendingToday.length ? `<div class="list">${pendingToday.map(d => doseItem(d, im)).join('')}</div>`
               : `<div class="empty" style="padding:18px 8px">${icon('check')}<div><b>¡Listo!</b> Registraste todas tus dosis de hoy.</div></div>`}`
             : emptyState('pill', 'No hay dosis programadas hoy', `<button class="btn ghost small" style="margin-top:10px" data-act="new-med">${icon('plus')} Agregar medicamento</button>`)}
-        </div>
-        <div class="card">
+        </div>`,
+      citas: () => `<div class="card">
           <div class="card-head"><h3>${icon('calendar')} Próximas citas y exámenes</h3><a href="#/agenda" class="small">Agenda</a></div>
           ${upcoming.length ? `<div class="list">${upcoming.slice(0, 4).map(apptItem).join('')}</div>`
             : emptyState('calendar', 'Sin citas próximas', `<button class="btn ghost small" style="margin-top:10px" data-act="new-appt">${icon('plus')} Agendar</button>`)}
-        </div>
-      </div>
-
-      <div class="card">
-        <div class="card-head"><h3>${icon('activity')} Tendencia (14 días)</h3><a href="#/reportes" class="small">Reporte completo</a></div>
-        <div data-chart="home"></div>
-      </div>
+        </div>`,
+      tendencia: () => `<div class="card">
+          <div class="card-head"><h3>${icon('activity')} Tendencia (14 días)</h3><a href="#/reportes" class="small">Reporte completo</a></div>
+          <div data-chart="home"></div>
+        </div>`
+    };
+    const shown = homeLayout().filter(w => w.on);
+    return `
+    <div class="stack-v">
+      <div><div class="muted">${cap(fmtLong(today()))}</div><h2 style="font-size:1.5rem">${greet}${s.name ? ', ' + esc(s.name.split(' ')[0]) : ''} 👋</h2></div>
+      ${banners.join('')}
+      <div class="home-grid">${shown.map(w => `<section class="hw${HOME_WIDGETS[w.id].wide ? ' wide' : ''}" data-w="${w.id}">${W[w.id]()}</section>`).join('')}</div>
+      ${shown.length ? '' : `<div class="card">${emptyState('grid', 'Ocultaste todas las secciones de Inicio.')}</div>`}
+      <div style="text-align:center"><button class="btn ghost small" data-act="home-layout">${icon('grid')} Personalizar inicio</button></div>
     </div>`;
+  }
+
+  // Secciones de Inicio: el orden y cuáles se muestran se guardan en Ajustes (se sincroniza)
+  const HOME_WIDGETS = {
+    presion: { label: 'Última presión', icon: 'heart' },
+    resumen: { label: 'Resumen (promedios, dosis y próxima cita)', icon: 'trend' },
+    agua: { label: 'Agua de hoy', icon: 'droplet' },
+    medicamentos: { label: 'Medicamentos de hoy', icon: 'pill' },
+    citas: { label: 'Próximas citas y exámenes', icon: 'calendar' },
+    tendencia: { label: 'Tendencia de presión (14 días)', icon: 'activity', wide: true }
+  };
+  function homeLayout() {
+    const order = (state.settings.homeOrder || []).filter(id => HOME_WIDGETS[id]);
+    for (const id of Object.keys(HOME_WIDGETS)) if (!order.includes(id)) order.push(id); // secciones nuevas al final
+    const hidden = new Set(state.settings.homeHidden || []);
+    return order.map(id => ({ id, on: !hidden.has(id) }));
+  }
+  function homeLayoutForm() {
+    const row = w => `<div class="lay-row" data-id="${w.id}">
+        <label class="check" style="flex:1;min-width:0"><input type="checkbox" ${w.on ? 'checked' : ''}> ${icon(HOME_WIDGETS[w.id].icon)} <span>${HOME_WIDGETS[w.id].label}</span></label>
+        <button type="button" class="icon-btn" data-move="-1" aria-label="Subir">${icon('up')}</button>
+        <button type="button" class="icon-btn" data-move="1" aria-label="Bajar">${icon('down')}</button>
+      </div>`;
+    modal({
+      title: 'Personalizar inicio',
+      body: `<p class="small muted" style="margin-top:0">Marca las secciones que quieres ver y ordénalas con las flechas.</p>
+        <div class="lay-list">${homeLayout().map(row).join('')}</div>
+        <button type="button" class="btn ghost small" data-reset style="margin-top:10px">Restablecer orden original</button>`,
+      onOpen: f => {
+        f.addEventListener('click', e => {
+          const mv = e.target.closest('[data-move]');
+          if (mv) {
+            const r = mv.closest('.lay-row');
+            if (mv.dataset.move === '-1' && r.previousElementSibling) r.parentNode.insertBefore(r, r.previousElementSibling);
+            if (mv.dataset.move === '1' && r.nextElementSibling) r.parentNode.insertBefore(r.nextElementSibling, r);
+            mv.focus();
+          }
+          if (e.target.closest('[data-reset]')) {
+            const list = $('.lay-list', f);
+            for (const id of Object.keys(HOME_WIDGETS)) { const r = $(`.lay-row[data-id="${id}"]`, list); list.appendChild(r); $('input', r).checked = true; }
+          }
+        });
+      },
+      onSubmit: async f => {
+        const rows = $$('.lay-row', f);
+        state.settings.homeOrder = rows.map(r => r.dataset.id);
+        state.settings.homeHidden = rows.filter(r => !$('input', r).checked).map(r => r.dataset.id);
+        await saveSettings(); render(); toast('Inicio actualizado', 'check');
+      }
+    });
   }
   routeById('inicio').after = () => drawBPChart($('[data-chart="home"]'), state.vitals.filter(v => v.date > addDays(today(), -14)), 220);
 
@@ -359,7 +408,7 @@
     }).join('');
     return `<div class="card water-card">
       <div class="card-head"><h3>${icon('droplet')} Agua de hoy</h3>
-        <button class="icon-btn" data-act="water-goal" title="Cambiar meta" aria-label="Cambiar meta">${icon('settings')}</button></div>
+        <button class="icon-btn" data-act="water-goal" title="Meta y recordatorios" aria-label="Meta y recordatorios">${icon('settings')}</button></div>
       <div class="water-top">
         <div><div class="water-total num">${liters(total)}</div>
           <div class="small muted">Meta ${liters(min)} – ${liters(max)}</div></div>
@@ -390,20 +439,31 @@
   }
 
   function waterGoalForm() {
-    const { min, max } = waterGoal();
+    const { min, max } = waterGoal(), s = state.settings;
+    const every = +s.waterEvery || 120;
     modal({
-      title: 'Meta de agua diaria',
-      body: `<div class="fields">
+      title: 'Agua: meta y recordatorios',
+      body: `<div class="form-section">Meta diaria</div>
+        <div class="fields">
           <label class="field"><span>Mínimo (litros)</span><input type="number" name="min" inputmode="decimal" min="0.5" max="6" step="0.1" value="${min / 1000}" required></label>
           <label class="field"><span>Máximo (litros)</span><input type="number" name="max" inputmode="decimal" min="0.5" max="6" step="0.1" value="${max / 1000}" required></label>
         </div>
-        <p class="small muted" style="margin:0">El seguimiento de agua es solo para ti: no aparece en los reportes.</p>`,
+        <div class="form-section">Recordatorios</div>
+        <label class="check"><input type="checkbox" name="on" ${s.notifyWater !== false ? 'checked' : ''}> Recordarme tomar agua</label>
+        <label class="field"><span>Cada</span><select name="every">${[[60, '1 hora'], [90, '1 h 30 min'], [120, '2 horas'], [180, '3 horas']].map(([v, l]) => `<option value="${v}" ${every === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+        <div class="fields">
+          <label class="field"><span>Desde</span><input type="time" name="from" value="${esc(s.waterFrom || '09:00')}" required></label>
+          <label class="field"><span>Hasta</span><input type="time" name="to" value="${esc(s.waterTo || '21:00')}" required></label>
+        </div>
+        <p class="small muted" style="margin:0">El aviso se salta si registraste agua hace poco y se detiene al cumplir tu meta. Desde la notificación puedes tocar <b>💧 +250 ml</b> para registrarlo sin abrir la app.<br>El agua es solo para ti: no aparece en los reportes.</p>`,
       onSubmit: async f => {
         if (!f.reportValidity()) return false;
         const a = Math.round(+f.min.value * 1000), b = Math.round(+f.max.value * 1000);
         if (!(b >= a)) { toast('El máximo debe ser mayor o igual al mínimo'); return false; }
-        state.settings.waterMin = a; state.settings.waterMax = b;
-        await saveSettings(); render(); toast('Meta guardada', 'check');
+        if (f.to.value <= f.from.value) { toast('La hora final debe ser después de la inicial'); return false; }
+        Object.assign(state.settings, { waterMin: a, waterMax: b, notifyWater: f.on.checked, waterEvery: +f.every.value, waterFrom: f.from.value, waterTo: f.to.value });
+        await saveSettings(); render(); toast('Guardado', 'check');
+        schedulePushSync(500);
       }
     });
   }
@@ -1553,6 +1613,7 @@
           ${sw('notifyMeds', 'Medicamentos', 'Aviso a la hora de cada dosis', 'pill')}
           ${sw('notifyAppts', 'Citas y exámenes', 'Según el recordatorio de cada evento', 'calendar')}
           ${sw('notifyBP', 'Tomar la presión', 'Recordatorio diario para medirte', 'heart')}
+          ${sw('notifyWater', 'Tomar agua', 'Si vas atrasado con tu meta (ajústalo en Inicio → Agua)', 'droplet')}
           <div class="field" style="padding:4px 0 12px"><span>Horarios para medir la presión</span><div id="bpTimes">${timesEditor(s.bpTimes || [], 'bpTimes')}</div></div>
           ${pushCard()}
           <button class="btn outline block" data-act="test-notif" ${ns.ok ? '' : 'disabled'} style="margin-top:8px">${icon('bell')} Enviar notificación de prueba (este dispositivo)</button>
@@ -1740,6 +1801,7 @@
     'edit-ficha': () => fichaForm(),
     'water-add': el => addWater(el.dataset.ml),
     'water-goal': () => waterGoalForm(),
+    'home-layout': () => homeLayoutForm(),
     'water-custom': () => modal({
       title: 'Agregar agua',
       body: `<label class="field"><span>Cantidad (ml)</span><input type="number" name="ml" inputmode="numeric" min="10" max="5000" step="10" value="350" required></label>`,
@@ -1864,7 +1926,7 @@
       const m = Math.round((Date.now() - new Date(iso)) / 60000);
       return m < 1 ? 'ahora' : m < 60 ? `hace ${m} min` : m < 1440 ? `hace ${Math.round(m / 60)} h` : new Date(iso).toLocaleDateString('es', { day: 'numeric', month: 'short' });
     };
-    const logIc = { med: 'pill', bp: 'heart', appt: 'calendar' };
+    const logIc = { med: 'pill', bp: 'heart', appt: 'calendar', water: 'droplet' };
     return `
       ${perm !== 'granted' ? `<div class="banner ${perm === 'denied' ? 'warn' : ''}">${icon('bell')}<div class="item-body small">${
         perm === 'denied' ? 'Las notificaciones están bloqueadas. Habilítalas en la configuración del navegador o del iPhone (Ajustes → Notificaciones → Latidia).'

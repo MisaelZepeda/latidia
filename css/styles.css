@@ -237,6 +237,18 @@ a { color: var(--primary); }
 .progress { height: 8px; border-radius: 99px; background: var(--surface-2); overflow: hidden; }
 .progress > div { height: 100%; background: linear-gradient(90deg, var(--primary), var(--primary-2)); border-radius: inherit; }
 
+/* Inicio personalizable */
+.home-grid { display: grid; gap: 16px; grid-template-columns: 1fr; align-items: start; }
+@media (min-width: 1000px) { .home-grid { grid-template-columns: 1fr 1fr; } .hw.wide { grid-column: 1 / -1; } }
+.hw { min-width: 0; }
+.hw > .grid.stats { height: 100%; }
+.lay-list { display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+.lay-row { display: flex; align-items: center; gap: 4px; padding: 6px 6px 6px 12px; background: var(--surface); }
+.lay-row + .lay-row { border-top: 1px solid var(--border); }
+.lay-row .check { gap: 8px; }
+.lay-row .check span { overflow: hidden; text-overflow: ellipsis; }
+.lay-row:first-child [data-move="-1"], .lay-row:last-child [data-move="1"] { opacity: .3; pointer-events: none; }
+
 /* Agua */
 .water-top { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 12px; }
 .water-total { font-size: 2rem; font-weight: 700; line-height: 1.1; color: var(--primary); }

@@ -157,7 +157,7 @@
   async function remindersBetween(from, to) {
     const settings = await DB.getKV('settings', {});
     if (settings.notify === false) return [];
-    const [meds, intakes, appts] = await Promise.all([DB.all('meds'), DB.all('intakes'), DB.all('appts')]);
+    const [meds, intakes, appts, water] = await Promise.all([DB.all('meds'), DB.all('intakes'), DB.all('appts'), DB.all('water').catch(() => [])]);
     const taken = new Set(intakes.map(i => i.id));
     const out = [];
     const inRange = when => when >= from && when <= to;
@@ -177,6 +177,7 @@
           });
         }
       }
+      if (settings.notifyWater !== false) out.push(...waterSlots(ds, settings, water).filter(n => inRange(n.when)));
       if (settings.notifyBP !== false) {
         for (const t of settings.bpTimes || []) {
           const when = at(ds, t);
@@ -212,6 +213,45 @@
       }
     }
     return out.sort((x, y) => x.when - y.when);
+  }
+
+  // Agua: cada N minutos dentro del horario; se salta si registraste agua hace poco y se detiene al cumplir la meta
+  const WATER_ACTIONS = [{ action: 'water', title: '💧 +250 ml' }];
+  const fmtL = ml => (Math.round(ml / 100) / 10).toString().replace('.', ',') + ' L';
+  function waterSlots(ds, settings, water) {
+    const goal = +settings.waterMin || 2500;
+    const every = Math.max(30, +settings.waterEvery || 120);
+    const day = water.filter(w => w.date === ds);
+    const total = day.reduce((t, w) => t + (+w.ml || 0), 0);
+    if (total >= goal) return [];
+    const last = day.reduce((m, w) => (w.at > m ? w.at : m), '');
+    const lastAt = last ? at(ds, last.slice(11, 16)).getTime() : 0;
+    const out = [];
+    const end = at(ds, settings.waterTo || '21:00').getTime();
+    for (let t = at(ds, settings.waterFrom || '09:00').getTime(); t <= end; t += every * 60000) {
+      if (lastAt && t < lastAt + every * 60000) continue;
+      const when = new Date(t);
+      out.push({
+        tag: `water:${ds}|${timeKey(when)}`, when,
+        title: '💧 Hora de tomar agua',
+        body: total ? `Llevas ${fmtL(total)} de ${fmtL(goal)}. ¿Un vaso más?` : `Tu meta de hoy es ${fmtL(goal)}. Empieza con un vaso.`,
+        data: { kind: 'water', date: ds, url: './#/inicio' },
+        actions: WATER_ACTIONS
+      });
+    }
+    return out;
+  }
+
+  // Registra agua desde la notificación (service worker) y devuelve los avisos que ya no aplican
+  async function addWaterFromNotification(ml) {
+    const now = new Date(), ds = dateKey(now);
+    const endOfDay = at(ds, '23:59');
+    const before = (await remindersBetween(now, endOfDay)).filter(n => n.data.kind === 'water').map(n => n.tag);
+    const rec = { id: uid(), date: ds, at: ds + 'T' + timeKey(now), ml };
+    await DB.put('water', rec);
+    const after = new Set((await remindersBetween(now, endOfDay)).filter(n => n.data.kind === 'water').map(n => n.tag));
+    const water = (await DB.all('water')).filter(w => w.date === ds);
+    return { rec, cancel: before.filter(t => !after.has(t)), total: water.reduce((t, w) => t + (+w.ml || 0), 0) };
   }
 
   // Recordatorios que tocan ahora (avisos locales, con la app abierta)
@@ -305,5 +345,5 @@
   }
 
   g.MS = { DB, pad, dateKey, timeKey, at, uid, medScheduledOn, medTimesOn, nextDoses, isInterval, dosesForDate, bpCategory, computeDue, runReminders, markTaken, snooze,
-    markSent, logNotifications, pushReminders, serverPushActive };
+    markSent, logNotifications, pushReminders, serverPushActive, addWaterFromNotification };
 })(typeof self !== 'undefined' ? self : window);

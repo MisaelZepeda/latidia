@@ -1,7 +1,7 @@
 /* Latidia — service worker: caché offline + notificaciones */
 importScripts('js/core.js');
 
-const CACHE = 'latidia-v17';
+const CACHE = 'latidia-v18';
 // Librerías externas versionadas (no cambian): caché primero
 const CDN = ['https://www.gstatic.com/firebasejs/', 'https://cdn.jsdelivr.net/npm/'];
 const ASSETS = [
@@ -112,6 +112,16 @@ self.addEventListener('notificationclick', e => {
       box.push({ store: 'intakes', id: data.key });
       await MS.DB.setKV('outbox', box);
       await deviceAction({ action: 'done', id: 'med:' + data.key }); // cancela el recordatorio repetido
+      await broadcast({ type: 'data-changed' });
+      return;
+    }
+    if (e.action === 'water') {
+      const r = await MS.addWaterFromNotification(250);
+      const box = await MS.DB.getKV('outbox', []);
+      box.push({ store: 'water', id: r.rec.id });
+      await MS.DB.setKV('outbox', box);
+      for (const id of r.cancel) await deviceAction({ action: 'done', id }); // el servidor no repite avisos que ya no aplican
+      await MS.markSent(r.cancel);
       await broadcast({ type: 'data-changed' });
       return;
     }
