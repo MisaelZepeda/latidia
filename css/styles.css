@@ -237,6 +237,26 @@ a { color: var(--primary); }
 .progress { height: 8px; border-radius: 99px; background: var(--surface-2); overflow: hidden; }
 .progress > div { height: 100%; background: linear-gradient(90deg, var(--primary), var(--primary-2)); border-radius: inherit; }
 
+/* Agua */
+.water-top { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 12px; }
+.water-total { font-size: 2rem; font-weight: 700; line-height: 1.1; color: var(--primary); }
+.water-progress { position: relative; height: 12px; overflow: visible; }
+.water-progress > div { background: linear-gradient(90deg, #38bdf8, #0ea5e9); }
+.water-progress > i { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--text); opacity: .35; border-radius: 2px; }
+.water-week { display: flex; gap: 6px; align-items: flex-end; }
+.wbar { display: flex; flex-direction: column; align-items: center; gap: 3px; }
+.wbar span { font-size: .68rem; color: var(--muted); }
+.wbar-track { position: relative; width: 12px; height: 44px; background: var(--surface-2); border-radius: 6px; overflow: hidden; display: flex; align-items: flex-end; }
+.wbar-track > div { width: 100%; border-radius: 6px; }
+.wbar-track > i { position: absolute; left: 0; right: 0; height: 1px; background: var(--text); opacity: .3; }
+.water-btns { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.water-btns .btn { padding: 8px 4px; font-size: .88rem; white-space: nowrap; }
+.water-btns .btn .ic { width: 16px; height: 16px; }
+.water-log { margin-top: 10px; }
+.water-log summary { cursor: pointer; }
+.water-chip { border: 0; cursor: pointer; font: inherit; font-size: .78rem; font-weight: 600; }
+.water-chip .ic { width: 12px; height: 12px; }
+
 /* Tabla */
 .table-wrap { overflow-x: auto; margin: 0 -18px; padding: 0 18px; }
 table { width: 100%; border-collapse: collapse; font-size: .9rem; }

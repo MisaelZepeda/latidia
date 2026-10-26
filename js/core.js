@@ -8,9 +8,10 @@
   // Las colecciones nuevas van en bases aparte.
   const DATABASES = [
     { name: 'medicsoft', version: 1, stores: ['vitals', 'meds', 'intakes', 'appts', 'kv'] },
-    { name: 'latidia-labs', version: 1, stores: ['labs'] }
+    { name: 'latidia-labs', version: 1, stores: ['labs'] },
+    { name: 'latidia-water', version: 1, stores: ['water'] }
   ];
-  const STORES = ['vitals', 'meds', 'intakes', 'appts', 'labs', 'kv'];
+  const STORES = ['vitals', 'meds', 'intakes', 'appts', 'labs', 'water', 'kv'];
   const dbOf = store => DATABASES.find(d => d.stores.includes(store));
 
   const dbPromises = {};

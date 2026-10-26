@@ -86,9 +86,10 @@
   const DEFAULT_SETTINGS = { name: '', doctor: '', notify: true, notifyMeds: true, notifyAppts: true, notifyBP: true, bpTimes: ['08:00', '20:00'] };
 
   async function load() {
-    const [settings, vitals, meds, intakes, appts, labs] = await Promise.all([
-      DB.getKV('settings', {}), DB.all('vitals'), DB.all('meds'), DB.all('intakes'), DB.all('appts'), DB.all('labs')
+    const [settings, vitals, meds, intakes, appts, labs, water] = await Promise.all([
+      DB.getKV('settings', {}), DB.all('vitals'), DB.all('meds'), DB.all('intakes'), DB.all('appts'), DB.all('labs'), DB.all('water')
     ]);
+    state.water = water.sort((a, b) => a.at.localeCompare(b.at));
     state.settings = Object.assign({}, DEFAULT_SETTINGS, settings);
     if (!settings.bpTimes) await DB.setKV('settings', state.settings); // el service worker lee estos valores
     state.vitals = vitals.sort((a, b) => (b.date + b.time).localeCompare(a.date + a.time));
@@ -286,6 +287,8 @@
         </div>
       </div>
 
+      ${waterCard()}
+
       <div class="grid cols-2">
         <div class="card">
           <div class="card-head"><h3>${icon('pill')} Medicamentos de hoy</h3><a href="#/medicamentos" class="small">Ver todo</a></div>
@@ -322,6 +325,86 @@
         { name: 'Diastólica', color: 'var(--dia)', points: bp.map(v => ({ x: vitalTime(v), y: v.dia })) },
         { name: 'Pulso', color: 'var(--pulse)', dashed: true, points: pul.map(v => ({ x: vitalTime(v), y: v.pulse })) }
       ]
+    });
+  }
+
+  // ======================================================
+  //  AGUA (seguimiento personal; no aparece en los reportes)
+  // ======================================================
+  const waterGoal = () => {
+    const min = +state.settings.waterMin || 2500, max = Math.max(+state.settings.waterMax || 3000, min);
+    return { min, max };
+  };
+  const waterOn = date => state.water.filter(w => w.date === date);
+  const waterSum = date => waterOn(date).reduce((t, w) => t + (+w.ml || 0), 0);
+  const liters = ml => (ml / 1000).toLocaleString('es', { minimumFractionDigits: ml % 1000 ? 1 : 0, maximumFractionDigits: 2 }) + ' L';
+
+  function waterCard() {
+    const { min, max } = waterGoal();
+    const d = today(), total = waterSum(d), list = waterOn(d);
+    const scale = Math.max(max, total);
+    const pct = Math.min(100, total * 100 / scale);
+    const status = total >= max ? `🎉 Llegaste a ${liters(max)}. ¡Excelente!`
+      : total >= min ? `✅ Meta cumplida · puedes llegar hasta ${liters(max)}`
+      : `Te faltan ${liters(min - total)} para tu meta`;
+    // Últimos 7 días
+    const days = Array.from({ length: 7 }, (_, i) => addDays(d, i - 6));
+    const top = Math.max(max, ...days.map(waterSum));
+    const bars = days.map(x => {
+      const v = waterSum(x), h = Math.round(v * 100 / top);
+      const c = v >= min ? 'var(--ok)' : v ? 'var(--primary-2)' : 'var(--surface-2)';
+      return `<div class="wbar" title="${esc(fmtDate(x, { weekday: 'long', day: 'numeric' }))}: ${liters(v)}">
+        <div class="wbar-track"><div style="height:${Math.max(h, v ? 4 : 0)}%;background:${c}"></div><i style="bottom:${min * 100 / top}%"></i></div>
+        <span>${cap(fmtDate(x, { weekday: 'narrow' }))}</span></div>`;
+    }).join('');
+    return `<div class="card water-card">
+      <div class="card-head"><h3>${icon('droplet')} Agua de hoy</h3>
+        <button class="icon-btn" data-act="water-goal" title="Cambiar meta" aria-label="Cambiar meta">${icon('settings')}</button></div>
+      <div class="water-top">
+        <div><div class="water-total num">${liters(total)}</div>
+          <div class="small muted">Meta ${liters(min)} – ${liters(max)}</div></div>
+        <div class="water-week" aria-label="Últimos 7 días">${bars}</div>
+      </div>
+      <div class="progress water-progress"><div style="width:${pct}%"></div><i style="left:${min * 100 / scale}%"></i></div>
+      <div class="small" style="margin:6px 0 12px;color:${total >= min ? 'var(--ok)' : 'var(--muted)'}">${status}</div>
+      <div class="water-btns">
+        <button class="btn ghost" data-act="water-add" data-ml="250">+250 ml</button>
+        <button class="btn ghost" data-act="water-add" data-ml="500">+500 ml</button>
+        <button class="btn ghost" data-act="water-add" data-ml="1000">+1 L</button>
+        <button class="btn ghost" data-act="water-custom">Otra</button>
+      </div>
+      ${list.length ? `<details class="water-log"><summary class="small muted">${list.length} registro${list.length === 1 ? '' : 's'} hoy · toca uno para quitarlo</summary>
+        <div class="row" style="gap:6px;margin-top:8px">${list.slice().reverse().map(w => `<button class="chip water-chip" data-act="water-del" data-id="${w.id}" title="Quitar">${w.at.slice(11, 16)} · ${w.ml} ml ${icon('x')}</button>`).join('')}</div></details>` : ''}
+    </div>`;
+  }
+
+  async function addWater(ml) {
+    ml = Math.round(+ml);
+    if (!(ml > 0 && ml <= 5000)) return;
+    const rec = { id: uid(), date: today(), at: today() + 'T' + timeKey(new Date()), ml };
+    await DB.put('water', rec);
+    await load(); render();
+    toast(`+${ml} ml · llevas ${liters(waterSum(today()))}`, 'droplet', {
+      label: 'Deshacer', fn: async () => { await DB.del('water', rec.id); await load(); render(); }
+    });
+  }
+
+  function waterGoalForm() {
+    const { min, max } = waterGoal();
+    modal({
+      title: 'Meta de agua diaria',
+      body: `<div class="fields">
+          <label class="field"><span>Mínimo (litros)</span><input type="number" name="min" inputmode="decimal" min="0.5" max="6" step="0.1" value="${min / 1000}" required></label>
+          <label class="field"><span>Máximo (litros)</span><input type="number" name="max" inputmode="decimal" min="0.5" max="6" step="0.1" value="${max / 1000}" required></label>
+        </div>
+        <p class="small muted" style="margin:0">El seguimiento de agua es solo para ti: no aparece en los reportes.</p>`,
+      onSubmit: async f => {
+        if (!f.reportValidity()) return false;
+        const a = Math.round(+f.min.value * 1000), b = Math.round(+f.max.value * 1000);
+        if (!(b >= a)) { toast('El máximo debe ser mayor o igual al mínimo'); return false; }
+        state.settings.waterMin = a; state.settings.waterMax = b;
+        await saveSettings(); render(); toast('Meta guardada', 'check');
+      }
     });
   }
 
@@ -1655,6 +1738,19 @@
     },
     theme: el => setTheme(el.dataset.v),
     'edit-ficha': () => fichaForm(),
+    'water-add': el => addWater(el.dataset.ml),
+    'water-goal': () => waterGoalForm(),
+    'water-custom': () => modal({
+      title: 'Agregar agua',
+      body: `<label class="field"><span>Cantidad (ml)</span><input type="number" name="ml" inputmode="numeric" min="10" max="5000" step="10" value="350" required></label>`,
+      onSubmit: async f => { if (!f.reportValidity()) return false; setTimeout(() => addWater(f.ml.value), 0); }
+    }),
+    'water-del': async el => {
+      const w = state.water.find(x => x.id === el.dataset.id);
+      if (!w) return;
+      await DB.del('water', w.id); await load(); render();
+      toast(`Se quitaron ${w.ml} ml`, 'x', { label: 'Deshacer', fn: async () => { await DB.put('water', w); await load(); render(); } });
+    },
     logout: async () => {
       if (!(await confirmDlg('Cerrar sesión', 'Tus datos seguirán guardados en tu cuenta. En este dispositivo se borrará la copia local y dejarás de recibir recordatorios hasta que vuelvas a iniciar sesión.', 'Cerrar sesión'))) return;
       await pushUnsubscribe();

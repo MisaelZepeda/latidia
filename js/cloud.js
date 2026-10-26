@@ -5,7 +5,7 @@
   'use strict';
   const V = '12.19.0';
   const SDK = m => `https://www.gstatic.com/firebasejs/${V}/firebase-${m}.js`;
-  const STORES = ['vitals', 'meds', 'intakes', 'appts', 'labs'];
+  const STORES = ['vitals', 'meds', 'intakes', 'appts', 'labs', 'water'];
   const cfg = g.FIREBASE_CONFIG || {};
   const DB = MS.DB;
   const local = { put: DB.put, del: DB.del, clear: DB.clear };
