@@ -9,9 +9,10 @@
   const DATABASES = [
     { name: 'medicsoft', version: 1, stores: ['vitals', 'meds', 'intakes', 'appts', 'kv'] },
     { name: 'latidia-labs', version: 1, stores: ['labs'] },
-    { name: 'latidia-water', version: 1, stores: ['water'] }
+    { name: 'latidia-water', version: 1, stores: ['water'] },
+    { name: 'latidia-habits', version: 1, stores: ['habits'] }
   ];
-  const STORES = ['vitals', 'meds', 'intakes', 'appts', 'labs', 'water', 'kv'];
+  const STORES = ['vitals', 'meds', 'intakes', 'appts', 'labs', 'water', 'habits', 'kv'];
   const dbOf = store => DATABASES.find(d => d.stores.includes(store));
 
   const dbPromises = {};
@@ -149,6 +150,20 @@
     return { id: 'normal', label: 'Normal', color: 'var(--bp-normal)' };
   }
 
+  // ---------- Inventario de un medicamento ----------
+  // stock = unidades que tenías en stockAt; se descuenta la cantidad por toma de cada dosis marcada como tomada después
+  function medStock(med, intakes) {
+    if (med.stock == null || med.stock === '') return null;
+    const per = +med.qty || 1;
+    const since = med.stockAt || '';
+    const used = intakes.filter(i => i.medId === med.id && i.status === 'taken' && (i.at || '') >= since).length * per;
+    const left = Math.max(0, Math.round((+med.stock - used) * 100) / 100);
+    const perDay = isInterval(med) ? 24 / (+med.every || 24) * per
+      : (med.times || []).length * ((med.days && med.days.length) || 7) / 7 * per;
+    const days = perDay ? Math.floor(left / perDay) : null;
+    return { left, perDay, days, low: days != null && days <= (+med.refillDays || 5) };
+  }
+
   // ---------- Recordatorios ----------
   const WINDOW_MS = 60 * 60 * 1000; // una notificación atrasada sigue valiendo hasta 1 h
   const MED_ACTIONS = [{ action: 'taken', title: '✔ Tomada' }, { action: 'snooze', title: '⏰ 10 min' }];
@@ -178,6 +193,34 @@
         }
       }
       if (settings.notifyWater !== false) out.push(...waterSlots(ds, settings, water).filter(n => inRange(n.when)));
+      // Medicamento por acabarse: un aviso al día (10:00) mientras alcance para pocos días
+      if (settings.notifyStock !== false) {
+        const ahead = Math.round((at(ds) - at(dateKey(new Date()))) / 86400000);
+        for (const m of meds) {
+          if (m.active === false || (m.end && m.end < ds)) continue;
+          const st = medStock(m, intakes);
+          if (!st || st.days == null) continue;
+          const left = st.days - Math.max(0, ahead);
+          if (left > (+m.refillDays || 5) || left < 0) continue;
+          const when = at(ds, settings.stockTime || '10:00');
+          if (!inRange(when)) continue;
+          out.push({
+            tag: `stock:${m.id}:${ds}`, when,
+            title: `💊 Se te está acabando ${m.name}`,
+            body: left <= 0 ? 'Ya casi no te queda. Pide tu receta o resurte hoy.' : `Te alcanza para unos ${left} día${left === 1 ? '' : 's'}. Pide tu receta o resurte.`,
+            data: { kind: 'stock', medId: m.id, url: './#/medicamentos' }
+          });
+        }
+      }
+      // Resumen semanal: domingo 19:00
+      if (settings.weeklySummary !== false && d.getDay() === 0) {
+        const when = at(ds, '19:00');
+        if (inRange(when)) out.push({
+          tag: `week:${ds}`, when, title: '📊 Tu resumen de la semana',
+          body: 'Toca para ver tu presión, dosis, agua y hábitos de los últimos 7 días.',
+          data: { kind: 'week', url: './#/resumen' }
+        });
+      }
       if (settings.notifyBP !== false) {
         for (const t of settings.bpTimes || []) {
           const when = at(ds, t);
@@ -345,5 +388,5 @@
   }
 
   g.MS = { DB, pad, dateKey, timeKey, at, uid, medScheduledOn, medTimesOn, nextDoses, isInterval, dosesForDate, bpCategory, computeDue, runReminders, markTaken, snooze,
-    markSent, logNotifications, pushReminders, serverPushActive, addWaterFromNotification };
+    markSent, logNotifications, pushReminders, serverPushActive, addWaterFromNotification, medStock };
 })(typeof self !== 'undefined' ? self : window);

@@ -90,6 +90,7 @@
       DB.getKV('settings', {}), DB.all('vitals'), DB.all('meds'), DB.all('intakes'), DB.all('appts'), DB.all('labs'), DB.all('water')
     ]);
     state.water = water.sort((a, b) => a.at.localeCompare(b.at));
+    state.habits = (await DB.all('habits')).sort((a, b) => a.at.localeCompare(b.at));
     state.settings = Object.assign({}, DEFAULT_SETTINGS, settings);
     if (!settings.bpTimes) await DB.setKV('settings', state.settings); // el service worker lee estos valores
     state.vitals = vitals.sort((a, b) => (b.date + b.time).localeCompare(a.date + a.time));
@@ -188,6 +189,8 @@
     { id: 'signos', label: 'Signos', title: 'Signos vitales', icon: 'activity', render: renderVitals, fab: () => vitalForm() },
     { id: 'medicamentos', label: 'Medicinas', title: 'Medicamentos', icon: 'pill', render: renderMeds, fab: () => medForm() },
     { id: 'agenda', label: 'Agenda', title: 'Agenda médica', icon: 'calendar', render: renderAgenda, fab: () => apptForm(null, state.calSel) },
+    { id: 'resumen', label: 'Resumen', title: 'Resumen', icon: 'chat', render: renderSummary, after: () => summaryAfter(), group: 'mas', sub: 'Tu semana y lo que llevarás a la consulta' },
+    { id: 'habitos', label: 'Hábitos', title: 'Hábitos', icon: 'flame', render: renderHabits, after: () => habitsAfter(), group: 'mas', sub: 'Peso, ejercicio, sal, café y rachas' },
     { id: 'analisis', label: 'Análisis', title: 'Análisis de laboratorio', icon: 'flask', render: renderLabs, after: () => labsAfter(), fab: () => labChooser(), group: 'mas', sub: 'Resultados de laboratorio' },
     { id: 'reportes', label: 'Reportes', title: 'Reportes', icon: 'report', render: renderReports, group: 'mas', sub: 'PDF y Excel por fechas' },
     { id: 'ajustes', label: 'Ajustes', title: 'Ajustes', icon: 'settings', render: renderSettings, group: 'mas', sub: 'Cuenta, notificaciones y respaldo' },
@@ -260,6 +263,9 @@
     if (typeof Notification !== 'undefined' && Notification.permission !== 'granted') {
       banners.push(`<div class="banner">${icon('bell')}<div class="item-body"><b>Activa las notificaciones</b><div class="small muted">Para recibir recordatorios de medicamentos, citas y tomas de presión.</div></div><button class="btn small" data-act="enable-notif">Activar</button></div>`);
     }
+    for (const { m, st } of lowStockMeds()) {
+      banners.push(`<div class="banner warn">${icon('pill')}<div class="item-body"><b>Se te está acabando ${esc(m.name)}</b><div class="small muted">Te alcanza para ${st.days <= 0 ? 'hoy' : `unos ${st.days} día${st.days === 1 ? '' : 's'}`}. Pide tu receta o resurte.</div></div><button class="btn small" data-act="med-refill" data-id="${m.id}">Resurtí</button></div>`);
+    }
     if (!isStandalone() && state.installEvt) {
       banners.push(`<div class="banner">${icon('install')}<div class="item-body"><b>Instala Latidia</b><div class="small muted">Acceso rápido y notificaciones en tu celular o computadora.</div></div><button class="btn small" data-act="install">Instalar</button></div>`);
     }
@@ -295,6 +301,7 @@
           ${upcoming.length ? `<div class="list">${upcoming.slice(0, 4).map(apptItem).join('')}</div>`
             : emptyState('calendar', 'Sin citas próximas', `<button class="btn ghost small" style="margin-top:10px" data-act="new-appt">${icon('plus')} Agendar</button>`)}
         </div>`,
+      habitos: () => habitsCard(),
       tendencia: () => `<div class="card">
           <div class="card-head"><h3>${icon('activity')} Tendencia (14 días)</h3><a href="#/reportes" class="small">Reporte completo</a></div>
           <div data-chart="home"></div>
@@ -318,7 +325,8 @@
     agua: { label: 'Agua de hoy', icon: 'droplet' },
     medicamentos: { label: 'Medicamentos de hoy', icon: 'pill' },
     citas: { label: 'Próximas citas y exámenes', icon: 'calendar' },
-    tendencia: { label: 'Tendencia de presión (14 días)', icon: 'activity', wide: true }
+    tendencia: { label: 'Tendencia de presión (14 días)', icon: 'activity', wide: true },
+    habitos: { label: 'Hábitos de hoy (ejercicio, sal, café y rachas)', icon: 'flame' }
   };
   function homeLayout() {
     const order = (state.settings.homeOrder || []).filter(id => HOME_WIDGETS[id]);
@@ -469,6 +477,353 @@
   }
 
   // ======================================================
+  //  HÁBITOS (seguimiento personal; no aparecen en los reportes)
+  // ======================================================
+  const habitGoals = () => {
+    const s = state.settings;
+    return { exercise: +s.exerciseGoal || 150, salt: s.saltMax != null ? +s.saltMax : 1, coffee: s.coffeeMax != null ? +s.coffeeMax : 2, weight: +s.weightGoal || null };
+  };
+  const habitsOn = (date, type) => state.habits.filter(h => h.date === date && h.type === type);
+  const habitSum = (date, type) => habitsOn(date, type).reduce((t, h) => t + (+h.value || 0), 0);
+  const lastDays = n => Array.from({ length: n }, (_, i) => addDays(today(), i - n + 1));
+
+  // Peso: registros de Signos vitales + los de Hábitos
+  function weightSeries() {
+    const a = state.vitals.filter(v => v.weight).map(v => ({ date: v.date, time: v.time, w: +v.weight }));
+    const b = state.habits.filter(h => h.type === 'weight').map(h => ({ date: h.date, time: h.at.slice(11, 16), w: +h.value }));
+    return a.concat(b).sort((x, y) => (x.date + x.time).localeCompare(y.date + y.time));
+  }
+  const weightAt = (series, ds) => { let w = null; for (const x of series) if (x.date <= ds) w = x.w; return w; };
+
+  // Rachas: test(ds) → true (cumplido), false (no cumplido) o null (sin datos ese día: no cuenta ni rompe)
+  function streakInfo(test) {
+    let best = 0, run = 0;
+    for (const ds of lastDays(365)) {
+      const r = test(ds);
+      if (r === true) { run++; best = Math.max(best, run); } else if (r === false && ds !== today()) run = 0;
+    }
+    let cur = 0;
+    for (let i = 0; i < 365; i++) {
+      const r = test(addDays(today(), -i));
+      if (r === true) cur++; else if (r === false) { if (i === 0) continue; break; }
+    }
+    return { cur, best };
+  }
+  function medsDayOk(ds) {
+    const now = new Date(), im = intakeMap();
+    const due = dosesForDate(state.meds, ds).filter(d => at(ds, d.time) <= now);
+    if (!due.length) return null;
+    return due.every(d => im.get(d.key)?.status === 'taken');
+  }
+  function waterDayOk(ds) {
+    const first = state.water[0];
+    if (!first || ds < first.date) return null;
+    const sum = waterSum(ds);
+    return ds === today() && sum < waterGoal().min ? null : sum >= waterGoal().min;
+  }
+  const streakTxt = n => `${n} día${n === 1 ? '' : 's'}`;
+
+  function habitsCard() {
+    const g = habitGoals(), d = today();
+    const ex = habitSum(d, 'exercise'), salt = habitSum(d, 'salt'), coffee = habitSum(d, 'coffee');
+    const weekEx = lastDays(7).reduce((t, x) => t + habitSum(x, 'exercise'), 0);
+    const sm = streakInfo(medsDayOk), sw = state.water.length ? streakInfo(waterDayOk) : null;
+    return `<div class="card">
+      <div class="card-head"><h3>${icon('flame')} Hábitos de hoy</h3><a href="#/habitos" class="small">Ver más</a></div>
+      <div class="streaks">
+        ${state.meds.length ? `<div class="streak"><span class="flame ${sm.cur ? 'on' : ''}">${icon('flame')}</span><div><b>${streakTxt(sm.cur)}</b><div class="small muted">con todas tus dosis</div></div></div>` : ''}
+        ${sw ? `<div class="streak"><span class="flame ${sw.cur ? 'on' : ''}">${icon('droplet')}</span><div><b>${streakTxt(sw.cur)}</b><div class="small muted">con tu meta de agua</div></div></div>` : ''}
+      </div>
+      ${habitCounter('exercise', ex, g)}
+      ${habitCounter('salt', salt, g)}
+      ${habitCounter('coffee', coffee, g)}
+      <div class="small muted" style="margin-top:8px">Ejercicio esta semana: <b>${weekEx}</b> de ${g.exercise} min</div>
+    </div>`;
+  }
+  const HABIT_DEF = {
+    exercise: { label: 'Ejercicio', icon: 'run', unit: 'min', step: 10 },
+    salt: { label: 'Comidas saladas', icon: 'alert', unit: '', step: 1, hint: 'Embutidos, enlatados, botanas, sopas instantáneas…' },
+    coffee: { label: 'Café', icon: 'coffee', unit: 'taza', step: 1 }
+  };
+  function habitCounter(type, v, g) {
+    const D = HABIT_DEF[type];
+    const over = type === 'salt' ? v > g.salt : type === 'coffee' ? v > g.coffee : false;
+    const sub = type === 'exercise' ? `${v} min hoy` : `${v} de máx. ${type === 'salt' ? g.salt : g.coffee} ${type === 'coffee' ? (g.coffee === 1 ? 'taza' : 'tazas') : ''}`;
+    return `<div class="habit-row">
+      <div class="item-ic" style="background:${over ? 'var(--danger-soft)' : 'var(--surface-2)'};color:${over ? 'var(--danger)' : 'inherit'}">${icon(D.icon)}</div>
+      <div class="item-body"><div class="item-title" style="font-weight:500">${D.label}</div><div class="small" style="color:${over ? 'var(--danger)' : 'var(--muted)'}">${sub}</div></div>
+      <button class="icon-btn" data-act="habit-minus" data-type="${type}" aria-label="Quitar" ${v ? '' : 'disabled'}>${icon('x')}</button>
+      <button class="btn ghost small" data-act="habit-add" data-type="${type}" data-v="${D.step}">+${D.step}${type === 'exercise' ? ' min' : ''}</button>
+    </div>`;
+  }
+  async function addHabit(type, value) {
+    value = +value;
+    if (!(value > 0)) return;
+    const rec = { id: uid(), date: today(), at: today() + 'T' + timeKey(new Date()), type, value };
+    await DB.put('habits', rec);
+    await load(); render();
+    const msg = type === 'weight' ? `Peso: ${value} kg` : type === 'exercise' ? `+${value} min de ejercicio` : type === 'salt' ? 'Comida salada registrada' : 'Café registrado';
+    toast(msg, 'check', { label: 'Deshacer', fn: async () => { await DB.del('habits', rec.id); await load(); render(); } });
+  }
+  async function removeLastHabit(type) {
+    const list = habitsOn(today(), type);
+    const last = list[list.length - 1];
+    if (!last) return;
+    await DB.del('habits', last.id); await load(); render();
+  }
+
+  function renderHabits() {
+    const g = habitGoals(), d = today();
+    const ws = weightSeries(), cur = ws.length ? ws[ws.length - 1] : null;
+    const prev30 = weightAt(ws, addDays(d, -30));
+    const h = +state.settings.height;
+    const bmi = cur && h ? Math.round(cur.w / Math.pow(h / 100, 2) * 10) / 10 : null;
+    const days = lastDays(7);
+    const exBars = days.map(x => ({ x, v: habitSum(x, 'exercise') }));
+    const exTop = Math.max(30, ...exBars.map(b => b.v));
+    const weekEx = exBars.reduce((t, b) => t + b.v, 0);
+    const sm = streakInfo(medsDayOk), sw = state.water.length ? streakInfo(waterDayOk) : null;
+    const dots = (type, max) => days.map(x => { const v = habitSum(x, type); return `<div class="hdot ${v > max ? 'bad' : v ? 'ok' : ''}" title="${esc(fmtDate(x))}: ${v}"><span>${v}</span><small>${cap(fmtDate(x, { weekday: 'narrow' }))}</small></div>`; }).join('');
+    return `
+    <div class="stack-v">
+      <div class="row between"><p class="small muted" style="margin:0">Solo para ti: estos datos no aparecen en los reportes.</p>
+        <button class="btn ghost small" data-act="habit-goals">${icon('settings')} Metas</button></div>
+      <div class="grid cols-2" style="align-items:start">
+        <div class="card">
+          <div class="card-head"><h3>${icon('scale')} Peso</h3><button class="btn small" data-act="habit-weight">${icon('plus')} Registrar</button></div>
+          <div class="row" style="gap:20px;align-items:flex-end">
+            <div><div class="water-total num" style="color:var(--text)">${cur ? String(cur.w).replace('.', ',') + ' kg' : '—'}</div><div class="small muted">${cur ? relDay(cur.date) : 'Sin registros'}</div></div>
+            ${g.weight ? `<div><div class="small muted">Meta</div><b>${String(g.weight).replace('.', ',')} kg</b>${cur ? `<div class="small" style="color:${Math.abs(cur.w - g.weight) < 0.5 ? 'var(--ok)' : 'var(--muted)'}">${Math.abs(cur.w - g.weight) < 0.5 ? '✅ En tu meta' : `Te faltan ${String(Math.round(Math.abs(cur.w - g.weight) * 10) / 10).replace('.', ',')} kg`}</div>` : ''}</div>` : `<button class="link-btn small" data-act="habit-goals">Poner meta</button>`}
+            ${bmi ? `<div><div class="small muted">IMC</div><b>${String(bmi).replace('.', ',')}</b><div class="small muted">${bmi < 18.5 ? 'Bajo peso' : bmi < 25 ? 'Normal' : bmi < 30 ? 'Sobrepeso' : 'Obesidad'}</div></div>` : ''}
+            ${cur && prev30 != null && prev30 !== cur.w ? `<div><div class="small muted">30 días</div><b>${cur.w > prev30 ? '+' : ''}${String(Math.round((cur.w - prev30) * 10) / 10).replace('.', ',')} kg</b></div>` : ''}
+          </div>
+          <div data-chart="weight" style="margin-top:12px"></div>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><h3>${icon('run')} Ejercicio</h3><span class="small muted">Meta ${g.exercise} min/semana</span></div>
+          <div class="water-top">
+            <div><div class="water-total num">${weekEx} min</div><div class="small muted">últimos 7 días</div></div>
+            <div class="water-week">${exBars.map(b => `<div class="wbar" title="${b.v} min"><div class="wbar-track"><div style="height:${Math.round(b.v * 100 / exTop)}%;background:${b.v ? 'var(--ok)' : 'var(--surface-2)'}"></div></div><span>${cap(fmtDate(b.x, { weekday: 'narrow' }))}</span></div>`).join('')}</div>
+          </div>
+          <div class="progress water-progress"><div style="width:${Math.min(100, weekEx * 100 / g.exercise)}%;background:linear-gradient(90deg,#22c55e,#16a34a)"></div></div>
+          <div class="small" style="margin:6px 0 12px;color:${weekEx >= g.exercise ? 'var(--ok)' : 'var(--muted)'}">${weekEx >= g.exercise ? '✅ Cumpliste tu meta semanal' : `Te faltan ${g.exercise - weekEx} min esta semana`}</div>
+          <div class="water-btns">${[10, 20, 30].map(n => `<button class="btn ghost" data-act="habit-add" data-type="exercise" data-v="${n}">+${n} min</button>`).join('')}<button class="btn ghost" data-act="habit-custom" data-type="exercise">Otro</button></div>
+          <div class="small muted" style="margin-top:8px">Hoy: ${habitSum(d, 'exercise')} min</div>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><h3>${icon('coffee')} Sal y café</h3></div>
+          ${habitCounter('salt', habitSum(d, 'salt'), g)}
+          <div class="small muted" style="margin:-2px 0 8px 52px">${HABIT_DEF.salt.hint}</div>
+          <div class="hdots">${dots('salt', g.salt)}</div>
+          <div style="height:12px"></div>
+          ${habitCounter('coffee', habitSum(d, 'coffee'), g)}
+          <div class="hdots">${dots('coffee', g.coffee)}</div>
+          <p class="small muted" style="margin:10px 0 0">La sal y el café pueden subir tu presión. En <b>Signos</b> puedes marcarlos al medirte para ver cuánto te afectan.</p>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><h3>${icon('flame')} Rachas</h3></div>
+          ${state.meds.length ? `<div class="streak big"><span class="flame ${sm.cur ? 'on' : ''}">${icon('flame')}</span><div><b>${streakTxt(sm.cur)} seguidos</b><div class="small muted">tomando todas tus dosis · récord: ${streakTxt(sm.best)}</div></div></div>` : ''}
+          ${sw ? `<div class="streak big"><span class="flame ${sw.cur ? 'on' : ''}">${icon('droplet')}</span><div><b>${streakTxt(sw.cur)} seguidos</b><div class="small muted">cumpliendo tu meta de agua · récord: ${streakTxt(sw.best)}</div></div></div>` : ''}
+          ${!state.meds.length && !sw ? '<div class="small muted">Registra tus dosis y tu agua para empezar una racha.</div>' : ''}
+          <p class="small muted" style="margin:10px 0 0">Un día cuenta cuando registras todas tus dosis como tomadas (o llegas a tu meta de agua).</p>
+        </div>
+      </div>
+    </div>`;
+  }
+  function habitsAfter() {
+    const el = $('[data-chart="weight"]');
+    if (!el) return;
+    const ws = weightSeries().filter(x => x.date > addDays(today(), -180));
+    const g = habitGoals();
+    const pts = ws.map(x => ({ x: at(x.date, x.time || '12:00'), y: x.w }));
+    const series = [{ name: 'Peso (kg)', color: 'var(--primary)', points: pts }];
+    if (g.weight && pts.length) series.push({ name: 'Meta', color: 'var(--ok)', dashed: true, points: [{ x: pts[0].x, y: g.weight }, { x: pts[pts.length - 1].x, y: g.weight }] });
+    el.innerHTML = pts.length ? Charts.lineChart({ width: el.clientWidth, height: 200, label: 'Peso', series }) : '<div class="small muted">Registra tu peso para ver la gráfica.</div>';
+  }
+  function habitGoalsForm() {
+    const g = habitGoals();
+    modal({
+      title: 'Metas de hábitos',
+      body: `<div class="fields">
+          <label class="field"><span>Peso meta (kg)</span><input type="number" name="weight" inputmode="decimal" min="20" max="300" step="0.1" value="${g.weight || ''}" placeholder="Opcional"></label>
+          <label class="field"><span>Ejercicio (min/semana)</span><input type="number" name="exercise" inputmode="numeric" min="10" max="2000" step="10" value="${g.exercise}" required></label>
+        </div>
+        <div class="fields">
+          <label class="field"><span>Comidas saladas (máx/día)</span><input type="number" name="salt" inputmode="numeric" min="0" max="10" value="${g.salt}" required></label>
+          <label class="field"><span>Tazas de café (máx/día)</span><input type="number" name="coffee" inputmode="numeric" min="0" max="10" value="${g.coffee}" required></label>
+        </div>
+        <p class="small muted" style="margin:0">Se recomiendan 150 minutos de actividad moderada por semana (por ejemplo, 30 min de caminata 5 días). Ajusta las metas con tu médico.</p>`,
+      onSubmit: async f => {
+        if (!f.reportValidity()) return false;
+        Object.assign(state.settings, { weightGoal: f.weight.value ? +f.weight.value : null, exerciseGoal: +f.exercise.value, saltMax: +f.salt.value, coffeeMax: +f.coffee.value });
+        await saveSettings(); render(); toast('Metas guardadas', 'check');
+      }
+    });
+  }
+
+  // ======================================================
+  //  RESUMEN (semana y próxima consulta)
+  // ======================================================
+  function periodStats(from, to) {
+    const vit = state.vitals.filter(v => v.date >= from && v.date <= to);
+    const bp = vit.filter(v => v.sys && v.dia);
+    const ad = state.meds.length ? adherence(from, to) : null;
+    const days = []; for (let ds = from; ds <= to; ds = addDays(ds, 1)) days.push(ds);
+    const ws = weightSeries();
+    const w1 = weightAt(ws, addDays(from, -1)) ?? ws.find(x => x.date >= from && x.date <= to)?.w ?? null, w2 = weightAt(ws, to);
+    const sum = type => days.reduce((t, x) => t + habitSum(x, type), 0);
+    return {
+      n: bp.length, sys: avg(bp.map(v => v.sys)), dia: avg(bp.map(v => v.dia)),
+      max: bp.slice().sort((a, b) => b.sys - a.sys)[0] || null,
+      urgent: bp.filter(isUrgentBP).length, parts: dayParts(vit), ad,
+      waterOk: state.water.length ? days.filter(x => x <= today() && waterSum(x) >= waterGoal().min).length : null,
+      days: days.filter(x => x <= today()).length,
+      exercise: sum('exercise'), salt: sum('salt'), coffee: sum('coffee'),
+      weight: w2, weightDiff: w1 != null && w2 != null ? Math.round((w2 - w1) * 10) / 10 : null
+    };
+  }
+  const lastConsult = () => state.appts.filter(a => a.type === 'consulta' && (a.done || a.date < today())).sort((a, b) => b.date.localeCompare(a.date))[0] || null;
+  const nextConsult = () => state.appts.filter(a => a.type === 'consulta' && !a.done && a.date >= today())[0] || null;
+  const summarySince = () => { const lc = lastConsult(); return lc ? lc.date : addDays(today(), -30); };
+  const kg = v => String(v).replace('.', ',') + ' kg';
+  const signed = v => (v > 0 ? '+' : '') + String(v).replace('.', ',');
+
+  function summaryText(kind) {
+    const s = state.settings, lines = [];
+    if (kind === 'week') {
+      const w = periodStats(addDays(today(), -6), today());
+      lines.push(`Mi semana en Latidia (${fmtDate(addDays(today(), -6), { day: 'numeric', month: 'short' })} – ${fmtDate(today(), { day: 'numeric', month: 'short' })})`);
+      if (w.n) lines.push(`• Presión promedio: ${w.sys}/${w.dia} mmHg (${w.n} tomas)`);
+      if (w.ad && w.ad.scheduled) lines.push(`• Dosis tomadas: ${w.ad.pct}% (${w.ad.taken}/${w.ad.scheduled})`);
+      if (w.waterOk != null) lines.push(`• Meta de agua: ${w.waterOk} de ${w.days} días`);
+      lines.push(`• Ejercicio: ${w.exercise} min`);
+      if (w.weightDiff != null) lines.push(`• Peso: ${kg(w.weight)} (${signed(w.weightDiff)} kg)`);
+      return lines.join('\n');
+    }
+    const from = summarySince(), w = periodStats(from, today()), nc = nextConsult();
+    lines.push(`Resumen para mi consulta${s.name ? ' — ' + s.name : ''}`);
+    lines.push(`Periodo: ${fmtDate(from, { day: 'numeric', month: 'long' })} al ${fmtDate(today(), { day: 'numeric', month: 'long', year: 'numeric' })}`);
+    if (w.n) {
+      lines.push(`\nPresión arterial: promedio ${w.sys}/${w.dia} mmHg en ${w.n} tomas`);
+      for (const p of w.parts) if (p.n) lines.push(`  ${p.label}: ${p.sys}/${p.dia} (${p.n})`);
+      if (w.max) lines.push(`  Más alta: ${w.max.sys}/${w.max.dia} el ${fmtDate(w.max.date, { day: 'numeric', month: 'short' })}`);
+      if (w.urgent) lines.push(`  ${w.urgent} toma${w.urgent === 1 ? '' : 's'} de 180/110 o más`);
+    }
+    if (w.ad && w.ad.per.length) {
+      lines.push(`\nMedicamentos (${w.ad.pct}% de dosis tomadas):`);
+      for (const p of w.ad.per) lines.push(`  ${p.med.name} ${doseLabel(p.med)}: ${Math.round(p.taken * 100 / p.scheduled)}%`);
+    }
+    const ch = medChanges(from);
+    if (ch.length) { lines.push('\nCambios en medicamentos:'); for (const c of ch) lines.push(`  ${c.text}`); }
+    if (w.weightDiff != null) lines.push(`\nPeso: ${kg(w.weight)} (${signed(w.weightDiff)} kg)`);
+    const labs = state.labs.filter(l => l.date >= from);
+    for (const l of labs) {
+      const out = (l.items || []).filter(it => ['high', 'low'].includes(labFlag(it)));
+      lines.push(`\nAnálisis ${fmtDate(l.date, { day: 'numeric', month: 'short' })}: ${out.length ? out.map(it => `${it.name} ${it.value} (${LAB_FLAG[labFlag(it)].label.toLowerCase()})`).join(', ') : 'valores dentro de referencia'}`);
+    }
+    const qs = (s.questions || []).filter(q => !q.done);
+    if (qs.length) { lines.push('\nPreguntas para el médico:'); qs.forEach((q, i) => lines.push(`  ${i + 1}. ${q.text}`)); }
+    if (nc) lines.push(`\nPróxima consulta: ${fmtDate(nc.date, { weekday: 'long', day: 'numeric', month: 'long' })}${nc.time ? ' ' + nc.time : ''}`);
+    return lines.join('\n');
+  }
+  function medChanges(from) {
+    const out = [];
+    for (const m of state.meds) {
+      if (m.created && m.created >= from) out.push({ date: m.created, text: `Nuevo: ${m.name} ${doseLabel(m)} (${fmtDate(m.created, { day: 'numeric', month: 'short' })})` });
+      for (const h of m.history || []) if (h.date >= from) out.push({ date: h.date, text: `${m.name}: ${h.from} → ${h.to} (${fmtDate(h.date, { day: 'numeric', month: 'short' })})` });
+    }
+    return out.sort((a, b) => a.date.localeCompare(b.date));
+  }
+  async function shareText(title, text) {
+    if (navigator.share && isMobile()) { try { await navigator.share({ title, text }); return; } catch (e) { if (e.name === 'AbortError') return; } }
+    try { await navigator.clipboard.writeText(text); toast('Copiado: pégalo en WhatsApp o correo', 'check'); }
+    catch (_) { download(title.replace(/\s+/g, '-') + '.txt', text, 'text/plain'); }
+  }
+
+  function renderSummary() {
+    const d = today();
+    const w = periodStats(addDays(d, -6), d), pw = periodStats(addDays(d, -13), addDays(d, -7));
+    const from = summarySince(), c = periodStats(from, d);
+    const lc = lastConsult(), nc = nextConsult();
+    const qs = state.settings.questions || [];
+    const sm = state.meds.length ? streakInfo(medsDayOk) : null;
+    const g = habitGoals();
+    const diff = w.n && pw.n ? w.sys - pw.sys : null;
+    const tile = (ic, color, label, value, sub) => `<div class="card stat">${statIc(ic, color)}<div style="min-width:0"><div class="label">${label}</div><div class="value num">${value}</div>${sub ? `<div class="small muted">${sub}</div>` : ''}</div></div>`;
+    const ch = medChanges(from);
+    const labs = state.labs.filter(l => l.date >= from);
+    const history = state.appts.filter(a => a.type === 'consulta' && a.done).sort((a, b) => b.date.localeCompare(a.date)).slice(0, 8);
+    return `
+    <div class="stack-v">
+      <div class="card">
+        <div class="card-head"><h3>${icon('calendar')} Esta semana</h3><button class="btn ghost small" data-act="share-week">${icon('upload')} Compartir</button></div>
+        <div class="grid stats">
+          ${tile('heart', 'var(--sys)', 'Presión promedio', w.n ? `${w.sys}/${w.dia}` : '—', diff == null ? `${w.n} tomas` : `<span style="color:${diff > 2 ? 'var(--danger)' : diff < -2 ? 'var(--ok)' : 'inherit'}">${diff > 0 ? '▲' : diff < 0 ? '▼' : '='} ${Math.abs(diff)} vs. semana anterior</span>`)}
+          ${w.ad && w.ad.scheduled ? tile('pill', 'var(--primary)', 'Dosis tomadas', w.ad.pct + '%', `${w.ad.taken} de ${w.ad.scheduled}`) : ''}
+          ${w.waterOk != null ? tile('droplet', '#0ea5e9', 'Meta de agua', `${w.waterOk}/${w.days}`, 'días cumplidos') : ''}
+          ${tile('run', 'var(--ok)', 'Ejercicio', `${w.exercise} min`, `meta ${g.exercise}`)}
+          ${w.weight != null ? tile('scale', 'var(--warn)', 'Peso', kg(w.weight), w.weightDiff ? `${signed(w.weightDiff)} kg en la semana` : '') : ''}
+          ${tile('coffee', 'var(--pulse)', 'Café / sal', `${(w.coffee / w.days).toFixed(1).replace('.', ',')} / ${(w.salt / w.days).toFixed(1).replace('.', ',')}`, 'promedio al día')}
+          ${sm ? tile('flame', '#f97316', 'Racha de dosis', streakTxt(sm.cur), `récord ${streakTxt(sm.best)}`) : ''}
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><h3>${icon('stethoscope')} Para tu próxima consulta</h3>
+          <div class="row" style="gap:6px"><button class="btn ghost small" data-act="summary-pdf">${icon('file')} PDF</button><button class="btn small" data-act="share-consult">${icon('upload')} Compartir</button></div></div>
+        <div class="small muted" style="margin:-6px 0 12px">Desde ${lc ? `tu última consulta (${fmtDate(from, { day: 'numeric', month: 'long' })})` : `hace 30 días (${fmtDate(from, { day: 'numeric', month: 'long' })})`}${nc ? ` · próxima: <b>${relDay(nc.date)}${nc.time ? ' ' + nc.time : ''}</b>` : ''}</div>
+        ${lc && lc.outcome ? `<div class="banner" style="margin-bottom:12px">${icon('chat')}<div class="item-body small"><b>Lo que te indicó el médico la última vez:</b><br>${esc(lc.outcome)}</div></div>` : ''}
+        <div class="grid cols-2">
+          <div>
+            <h4 class="sum-h">Presión arterial</h4>
+            ${c.n ? `<div class="small">Promedio <b>${c.sys}/${c.dia}</b> en ${c.n} tomas ${catChip(bpCategory(c.sys, c.dia))}</div>
+              <div class="small muted">${c.parts.filter(p => p.n).map(p => `${p.label}: ${p.sys}/${p.dia}`).join(' · ')}</div>
+              ${c.max ? `<div class="small muted">Más alta: ${c.max.sys}/${c.max.dia} (${fmtDate(c.max.date, { day: 'numeric', month: 'short' })})</div>` : ''}
+              ${c.urgent ? `<div class="small" style="color:var(--danger)">${c.urgent} toma${c.urgent === 1 ? '' : 's'} de 180/110 o más</div>` : ''}` : '<div class="small muted">Sin tomas en este periodo.</div>'}
+            <h4 class="sum-h">Medicamentos</h4>
+            ${c.ad && c.ad.per.length ? `<div class="small">Tomaste el <b>${c.ad.pct}%</b> de tus dosis${c.ad.scheduled - c.ad.taken ? ` · ${c.ad.scheduled - c.ad.taken} sin tomar` : ''}</div>
+              ${c.ad.per.map(p => `<div class="small muted">${esc(p.med.name)}: ${Math.round(p.taken * 100 / p.scheduled)}%</div>`).join('')}` : '<div class="small muted">Sin dosis en este periodo.</div>'}
+            ${ch.length ? `<h4 class="sum-h">Cambios en medicamentos</h4>${ch.map(x => `<div class="small muted">${esc(x.text)}</div>`).join('')}` : ''}
+            ${c.weightDiff != null ? `<h4 class="sum-h">Peso</h4><div class="small">${kg(c.weight)} <span class="muted">(${c.weightDiff ? signed(c.weightDiff) + ' kg' : 'sin cambio'})</span></div>` : ''}
+            ${labs.length ? `<h4 class="sum-h">Análisis</h4>${labs.map(l => { const out = (l.items || []).filter(it => ['high', 'low'].includes(labFlag(it))); return `<div class="small muted">${fmtDate(l.date, { day: 'numeric', month: 'short' })}: ${out.length ? out.map(it => esc(it.name) + ' ' + esc(it.value)).join(', ') + ' fuera de rango' : 'todo en rango'}</div>`; }).join('')}` : ''}
+          </div>
+          <div>
+            <h4 class="sum-h">Preguntas para el médico</h4>
+            <form class="q-add" data-q-form><input name="q" placeholder="Ej. ¿Puedo tomar ibuprofeno?" maxlength="200" autocomplete="off"><button class="btn small" aria-label="Agregar pregunta">${icon('plus')}</button></form>
+            ${qs.filter(q => !q.done).length ? `<div class="list">${qs.filter(q => !q.done).map(q => `<div class="item" style="padding:8px 0">
+                <button class="dose-btn" data-act="q-done" data-id="${q.id}" aria-label="Marcar como resuelta" style="width:30px;height:30px">${icon('check')}</button>
+                <div class="item-body small">${esc(q.text)}</div>
+                <button class="icon-btn" data-act="q-del" data-id="${q.id}" aria-label="Eliminar">${icon('trash')}</button></div>`).join('')}</div>`
+              : '<div class="small muted">Anota aquí lo que quieras preguntar; se incluye al compartir el resumen.</div>'}
+            ${qs.filter(q => q.done).length ? `<details style="margin-top:8px"><summary class="small muted">${qs.filter(q => q.done).length} resueltas</summary>
+              ${qs.filter(q => q.done).slice(-10).reverse().map(q => `<div class="small muted" style="text-decoration:line-through;margin-top:4px">${esc(q.text)} <button class="link-btn small" data-act="q-del" data-id="${q.id}">Quitar</button></div>`).join('')}</details>` : ''}
+          </div>
+        </div>
+      </div>
+
+      ${history.length ? `<div class="card"><div class="card-head"><h3>${icon('list')} Historial de consultas</h3></div>
+        <div class="list">${history.map(a => `<div class="item"><div class="item-ic" style="background:var(--primary-soft);color:var(--primary)">${icon('stethoscope')}</div>
+          <div class="item-body"><div class="item-title">${esc(a.title)}</div><div class="item-sub">${cap(fmtDate(a.date, { weekday: 'short', day: 'numeric', month: 'long', year: 'numeric' }))}${a.doctor ? ' · ' + esc(a.doctor) : ''}</div>
+          ${a.outcome ? `<div class="item-sub outcome">${icon('chat')} ${esc(a.outcome)}</div>` : ''}</div>
+          <button class="icon-btn" data-act="appt-outcome" data-id="${a.id}" aria-label="Editar indicaciones">${icon('edit')}</button></div>`).join('')}</div></div>` : ''}
+    </div>`;
+  }
+  function summaryAfter() {
+    const f = $('[data-q-form]');
+    if (f) f.onsubmit = async e => {
+      e.preventDefault();
+      const text = f.q.value.trim();
+      if (!text) return;
+      state.settings.questions = (state.settings.questions || []).concat({ id: uid(), text, created: today() });
+      await saveSettings(); render();
+      setTimeout(() => { const i = $('[data-q-form] input'); if (i) i.focus(); }, 50);
+    };
+  }
+
+  // ======================================================
   //  SIGNOS VITALES
   // ======================================================
   function renderVitals() {
@@ -481,6 +836,7 @@
       <div class="row between"><div class="seg">${seg}</div>
         <button class="btn hide-mobile" data-act="new-vital">${icon('plus')} Nuevo registro</button></div>
       <div class="card"><div class="card-head"><h3>${icon('activity')} Presión y pulso</h3><span class="small muted">Franja verde: sistólica normal (90–120)</span></div><div data-chart="vitals"></div></div>
+      <div class="grid cols-2">${dayPartCard(list)}${triggersCard(list)}</div>
       <div class="card">
         <div class="card-head"><h3>${icon('list')} Registros <span class="chip">${list.length}</span></h3></div>
         ${list.length ? `<div class="list">${list.map(vitalItem).join('')}</div>` : emptyState('heart', 'No hay registros en este periodo')}
@@ -491,6 +847,54 @@
     const r = state.vitalsRange;
     drawBPChart($('[data-chart="vitals"]'), r ? state.vitals.filter(v => v.date > addDays(today(), -r)) : state.vitals, 260);
   };
+
+  // Mañana / tarde / noche: ayuda al médico a decidir a qué hora conviene cada medicamento
+  const DAY_PARTS = [['Mañana', '05:00', '12:00', 'sun'], ['Tarde', '12:00', '18:00', 'sun'], ['Noche', '18:00', '05:00', 'moon']];
+  const inPart = (t, a, b) => a < b ? t >= a && t < b : t >= a || t < b;
+  function dayParts(list) {
+    return DAY_PARTS.map(([label, a, b, ic]) => {
+      const bp = list.filter(v => v.sys && v.dia && inPart(v.time, a, b));
+      return { label, ic, n: bp.length, sys: avg(bp.map(v => v.sys)), dia: avg(bp.map(v => v.dia)) };
+    });
+  }
+  function dayPartCard(list) {
+    const parts = dayParts(list);
+    const m = parts[0], n = parts[2];
+    let note = 'Mide tu presión en la mañana y en la noche para comparar.';
+    if (m.n >= 2 && n.n >= 2) {
+      const d = n.sys - m.sys;
+      note = Math.abs(d) < 5 ? 'Tu presión es parecida en la mañana y en la noche.'
+        : `En la ${d > 0 ? 'noche' : 'mañana'} tu sistólica es <b>${Math.abs(d)} mmHg más alta</b>. Coméntalo con tu médico: puede ayudar a ajustar el horario de tus medicamentos.`;
+    }
+    return `<div class="card"><div class="card-head"><h3>${icon('clock')} Mañana, tarde y noche</h3></div>
+      <div class="dayparts">${parts.map(p => `<div class="daypart">${icon(p.ic)}<div class="small muted">${p.label}</div>
+        <div class="bp-val">${p.n ? `${p.sys}/${p.dia}` : '—'}</div>${p.n ? catChip(bpCategory(p.sys, p.dia)) : ''}<div class="small muted">${p.n} toma${p.n === 1 ? '' : 's'}</div></div>`).join('')}</div>
+      <p class="small muted" style="margin:10px 0 0">${note}</p></div>`;
+  }
+
+  // Contexto de cada toma y qué factores coinciden con presión más alta
+  const VITAL_TAGS = [['cafe', '☕ Café'], ['estres', '😟 Estrés'], ['sal', '🧂 Comida salada'], ['ejercicio', '🏃 Ejercicio'],
+    ['dolor', '🤕 Dolor de cabeza'], ['sueno', '😴 Dormí mal'], ['sin_med', '💊 Sin medicamento'], ['alcohol', '🍺 Alcohol']];
+  const tagLabel = id => (VITAL_TAGS.find(t => t[0] === id) || [id, id])[1];
+  function triggersCard(list) {
+    const bp = list.filter(v => v.sys && v.dia);
+    const base = bp.filter(v => !(v.tags && v.tags.length));
+    const rows = VITAL_TAGS.map(([id, label]) => {
+      const w = bp.filter(v => (v.tags || []).includes(id));
+      return { id, label, n: w.length, sys: avg(w.map(v => v.sys)), dia: avg(w.map(v => v.dia)) };
+    }).filter(x => x.n);
+    const bSys = avg(base.map(v => v.sys));
+    let body;
+    if (!rows.length) body = `<div class="small muted">Al registrar una toma marca qué pasó antes (café, estrés, comida salada…). Con varias tomas verás aquí qué te sube la presión.</div>`;
+    else body = `<div class="list">${rows.sort((a, b) => b.sys - a.sys).map(x => {
+      const d = base.length >= 2 && x.n >= 2 ? x.sys - bSys : null;
+      return `<div class="item" style="padding:8px 0"><div class="item-body"><div class="item-title" style="font-weight:500">${x.label}</div>
+        <div class="item-sub">${x.n} toma${x.n === 1 ? '' : 's'} · promedio ${x.sys}/${x.dia}</div></div>
+        ${d == null ? '<span class="small muted">pocos datos</span>' : `<span class="chip" style="color:${d >= 5 ? 'var(--danger)' : d <= -5 ? 'var(--ok)' : 'var(--muted)'}">${d > 0 ? '+' : ''}${d} mmHg</span>`}</div>`;
+    }).join('')}</div>
+      <p class="small muted" style="margin:8px 0 0">Comparado con tus tomas sin ningún factor${base.length >= 2 ? ` (${bSys} de sistólica)` : ' (aún hay pocas)'}.</p>`;
+    return `<div class="card"><div class="card-head"><h3>${icon('alert')} ¿Qué te sube la presión?</h3></div>${body}</div>`;
+  }
 
   function vitalItem(v) {
     const c = bpCategory(v.sys, v.dia);
@@ -505,10 +909,12 @@
           ${v.sys ? `<span class="bp-val">${v.sys}/${v.dia} <span class="small muted">mmHg</span></span>` : ''}
           ${v.pulse ? `<span class="num"><b>${v.pulse}</b> <span class="small muted">lpm</span></span>` : ''}
           ${catChip(c)}
+          ${v.readings && v.readings.length > 1 ? `<span class="chip">Promedio de ${v.readings.length}</span>` : ''}
         </div>
         <div class="item-sub row" style="gap:4px 12px">${relDay(v.date)} · ${v.time}
           ${extras.map(e => `<span class="row" style="gap:3px">${e.replace('class="ic ', 'style="width:14px;height:14px" class="ic ')}</span>`).join('')}
           ${v.arm || v.position ? `<span>${[v.arm, v.position].filter(Boolean).join(', ')}</span>` : ''}</div>
+        ${v.tags && v.tags.length ? `<div class="row" style="gap:4px;margin-top:4px">${v.tags.map(t => `<span class="chip tag">${tagLabel(t)}</span>`).join('')}</div>` : ''}
         ${v.notes ? `<div class="item-sub">${esc(v.notes)}</div>` : ''}
       </div>
       <div class="item-actions">
@@ -520,7 +926,15 @@
   function vitalForm(v) {
     const now = new Date();
     v = v || { date: dateKey(now), time: timeKey(now) };
+    const reads = v.readings && v.readings.length ? v.readings : null;
+    const r0 = reads ? reads[0] : v;
     const val = k => v[k] != null ? esc(v[k]) : '';
+    const rv = (o, k) => o && o[k] != null ? esc(o[k]) : '';
+    const readingRow = (o, i) => `<div class="reading-row"><span class="small muted">Lectura ${i}</span>
+      <input type="number" inputmode="numeric" data-r="sys" min="50" max="300" placeholder="Sist." value="${rv(o, 'sys')}" aria-label="Sistólica lectura ${i}">
+      <input type="number" inputmode="numeric" data-r="dia" min="30" max="200" placeholder="Diast." value="${rv(o, 'dia')}" aria-label="Diastólica lectura ${i}">
+      <input type="number" inputmode="numeric" data-r="pulse" min="20" max="250" placeholder="Pulso" value="${rv(o, 'pulse')}" aria-label="Pulso lectura ${i}">
+      <button type="button" class="icon-btn" data-rm-reading aria-label="Quitar lectura">${icon('x')}</button></div>`;
     const sel = (name, opts) => `<select name="${name}"><option value="">—</option>${opts.map(o => `<option ${v[name] === o ? 'selected' : ''}>${o}</option>`).join('')}</select>`;
     modal({
       title: v.id ? 'Editar registro' : 'Nuevo registro',
@@ -528,11 +942,16 @@
         <div class="fields"><label class="field"><span>Fecha</span><input type="date" name="date" value="${val('date')}" max="${today()}" required></label>
         <label class="field"><span>Hora</span><input type="time" name="time" value="${val('time')}" required></label></div>
         <div class="fields" style="grid-template-columns:repeat(3,1fr)">
-          <label class="field"><span style="color:var(--sys)">Sistólica</span><input class="big" type="number" inputmode="numeric" name="sys" min="50" max="300" placeholder="120" value="${val('sys')}"></label>
-          <label class="field"><span style="color:var(--dia)">Diastólica</span><input class="big" type="number" inputmode="numeric" name="dia" min="30" max="200" placeholder="80" value="${val('dia')}"></label>
-          <label class="field"><span style="color:var(--pulse)">Pulso</span><input class="big" type="number" inputmode="numeric" name="pulse" min="20" max="250" placeholder="70" value="${val('pulse')}"></label>
+          <label class="field"><span style="color:var(--sys)">Sistólica</span><input class="big" type="number" inputmode="numeric" name="sys" min="50" max="300" placeholder="120" value="${rv(r0, 'sys')}"></label>
+          <label class="field"><span style="color:var(--dia)">Diastólica</span><input class="big" type="number" inputmode="numeric" name="dia" min="30" max="200" placeholder="80" value="${rv(r0, 'dia')}"></label>
+          <label class="field"><span style="color:var(--pulse)">Pulso</span><input class="big" type="number" inputmode="numeric" name="pulse" min="20" max="250" placeholder="70" value="${rv(r0, 'pulse')}"></label>
         </div>
+        <div id="moreReadings">${reads ? reads.slice(1).map((o, i) => readingRow(o, i + 2)).join('') : ''}</div>
+        <button type="button" class="btn ghost small" data-add-reading>${icon('plus')} Otra lectura</button>
+        <div class="small muted" style="margin-top:-4px">Recomendado: 2 o 3 lecturas con 1 minuto entre cada una. Se guarda el promedio.</div>
         <div id="bpPreview" style="min-height:24px"></div>
+        <div class="field"><span>¿Qué pasó antes de medirte? (opcional)</span>
+          <div class="tagpick">${VITAL_TAGS.map(([id, label]) => `<label><input type="checkbox" name="tags" value="${id}" ${(v.tags || []).includes(id) ? 'checked' : ''}><span>${label}</span></label>`).join('')}</div></div>
         <details ${v.temp || v.spo2 || v.glucose || v.weight ? 'open' : ''}><summary class="small" style="cursor:pointer;font-weight:600">Otros signos vitales</summary>
           <div class="fields" style="margin-top:12px">
             <label class="field"><span>Temperatura °C</span><input type="number" step="0.1" inputmode="decimal" name="temp" min="30" max="45" value="${val('temp')}"></label>
@@ -545,16 +964,36 @@
         <label class="field"><span>Notas</span><textarea name="notes" placeholder="Ej. después de caminar, con dolor de cabeza…">${val('notes')}</textarea></label>`,
       onOpen: f => {
         const upd = () => {
-          const c = bpCategory(num(f.sys.value), num(f.dia.value));
-          $('#bpPreview').innerHTML = c ? catChip(c) + (c.id === 'crisis' ? ' <span class="small" style="color:var(--danger)">Si tienes síntomas, busca atención médica de inmediato.</span>' : '') : '';
+          const rs = readReadings(f), m = avgReadings(rs);
+          const c = bpCategory(m.sys, m.dia);
+          const bp = rs.filter(x => x.sys && x.dia);
+          const spread = bp.length > 1 ? Math.max(Math.max(...bp.map(x => x.sys)) - Math.min(...bp.map(x => x.sys)), Math.max(...bp.map(x => x.dia)) - Math.min(...bp.map(x => x.dia))) : 0;
+          $('#bpPreview').innerHTML = (bp.length > 1 ? `<span class="small"><b>Promedio:</b> ${m.sys}/${m.dia}${m.pulse ? ` · ${m.pulse} lpm` : ''}</span> ` : '') + (c ? catChip(c) : '')
+            + (spread > 10 ? `<div class="small" style="color:var(--warn);margin-top:4px">Hay más de 10 mmHg de diferencia entre lecturas. Descansa 1–2 minutos y mide otra vez.</div>` : '')
+            + (isUrgentBP(m) ? ' <span class="small" style="color:var(--danger)">Presión muy alta: si tienes síntomas, busca atención médica de inmediato.</span>' : '');
         };
+        const renumber = () => $$('.reading-row', f).forEach((r, i) => { $('.small', r).textContent = `Lectura ${i + 2}`; });
+        f.addEventListener('click', e => {
+          if (e.target.closest('[data-add-reading]')) {
+            if ($$('.reading-row', f).length >= 4) return;
+            $('#moreReadings').insertAdjacentHTML('beforeend', readingRow({}, $$('.reading-row', f).length + 2));
+            $('#moreReadings .reading-row:last-child input').focus();
+          }
+          const rm = e.target.closest('[data-rm-reading]');
+          if (rm) { rm.closest('.reading-row').remove(); renumber(); upd(); }
+        });
         f.addEventListener('input', upd); upd();
         if (!v.id) f.sys.focus();
       },
       onSubmit: async f => {
+        const rs = readReadings(f), m = avgReadings(rs);
+        const bad = rs.find(x => (x.sys == null) !== (x.dia == null) || (x.sys != null && x.sys <= x.dia));
+        if (bad) { toast(bad.sys != null && bad.dia != null ? 'La sistólica debe ser mayor que la diastólica' : 'Cada lectura necesita sistólica y diastólica'); return false; }
         const d = {
           id: v.id || uid(), date: f.date.value, time: f.time.value,
-          sys: num(f.sys.value), dia: num(f.dia.value), pulse: num(f.pulse.value),
+          sys: m.sys, dia: m.dia, pulse: m.pulse,
+          readings: rs.length > 1 ? rs : null,
+          tags: $$('input[name="tags"]:checked', f).map(i => i.value),
           temp: num(f.temp.value), spo2: num(f.spo2.value), glucose: num(f.glucose.value), weight: num(f.weight.value),
           arm: f.arm.value, position: f.position.value, notes: f.notes.value.trim()
         };
@@ -562,9 +1001,48 @@
         if ((d.sys == null) !== (d.dia == null)) { toast('Ingresa sistólica y diastólica'); return false; }
         if (d.sys != null && d.sys <= d.dia) { toast('La sistólica debe ser mayor que la diastólica'); return false; }
         if ([d.sys, d.pulse, d.temp, d.spo2, d.glucose, d.weight].every(x => x == null)) { toast('Ingresa al menos un valor'); return false; }
+        if (!d.readings) delete d.readings;
+        if (!d.tags.length) delete d.tags;
         await DB.put('vitals', d);
         await load(); render(); toast('Registro guardado', 'check');
+        if (isUrgentBP(d) && d.date === today()) setTimeout(() => urgentBPAlert(d), 350);
       }
+    });
+  }
+
+  // Lecturas del formulario: la principal + las adicionales (filas vacías se ignoran)
+  function readReadings(f) {
+    const out = [{ sys: num(f.sys.value), dia: num(f.dia.value), pulse: num(f.pulse.value) }];
+    for (const r of $$('.reading-row', f)) {
+      const o = {}; for (const i of $$('[data-r]', r)) o[i.dataset.r] = num(i.value);
+      out.push(o);
+    }
+    return out.filter(o => o.sys != null || o.dia != null || o.pulse != null);
+  }
+  function avgReadings(rs) {
+    const bp = rs.filter(o => o.sys && o.dia), p = rs.filter(o => o.pulse);
+    return { sys: bp.length ? avg(bp.map(o => o.sys)) : null, dia: bp.length ? avg(bp.map(o => o.dia)) : null, pulse: p.length ? avg(p.map(o => o.pulse)) : null };
+  }
+
+  // Presión muy alta (≥180 o ≥110): qué hacer y a quién llamar
+  const isUrgentBP = v => !!(v && v.sys && v.dia && (v.sys >= 180 || v.dia >= 110));
+  function urgentBPAlert(v) {
+    const s = state.settings;
+    const tel = x => esc(String(x).replace(/[^\d+]/g, ''));
+    modal({
+      title: '⚠️ Presión muy alta', submit: 'Medir de nuevo', cancel: 'Cerrar',
+      body: `<div class="urgent-bp"><div class="bp-val" style="font-size:2rem;color:var(--danger)">${v.sys}/${v.dia}</div><div class="small">mmHg</div></div>
+        <ol class="small" style="padding-left:18px;margin:12px 0">
+          <li>Siéntate, relájate y respira tranquilo <b>5 minutos</b>. Después mide otra vez.</li>
+          <li>Si sigue igual de alta o tienes <b>dolor de pecho, falta de aire, dolor de cabeza muy fuerte, visión borrosa, debilidad u hormigueo en un lado del cuerpo, o dificultad para hablar</b>, llama al <b>911</b> o ve a urgencias.</li>
+          <li>No tomes dosis extra de tus medicamentos sin indicación médica.</li>
+        </ol>
+        <div class="stack-v" style="gap:8px">
+          <a class="btn danger block" href="tel:911">${icon('phone')} Llamar al 911</a>
+          ${s.emPhone ? `<a class="btn outline block" href="tel:${tel(s.emPhone)}">${icon('phone')} Llamar a ${esc(s.emName || 'mi contacto de emergencia')}</a>` : ''}
+          ${s.doctorPhone ? `<a class="btn outline block" href="tel:${tel(s.doctorPhone)}">${icon('phone')} Llamar a ${esc(s.doctor || 'mi médico')}</a>` : ''}
+        </div>`,
+      onSubmit: () => { setTimeout(() => vitalForm(), 0); }
     });
   }
 
@@ -667,7 +1145,8 @@
   function renderMeds() {
     const ds = state.medDay, im = intakeMap();
     const doses = dosesForDate(state.meds, ds);
-    const ad = adherence(addDays(today(), -6), today());
+    const adDays = state.adRange || 7;
+    const ad = adherence(addDays(today(), -(adDays - 1)), today());
     return `
     <div class="stack-v">
       <div class="grid cols-2">
@@ -680,12 +1159,14 @@
           ${doses.length ? `<div class="list">${doses.map(d => doseItem(d, im)).join('')}</div>` : emptyState('pill', 'Sin dosis programadas este día')}
         </div>
         <div class="card">
-          <div class="card-head"><h3>${icon('trend')} Adherencia (7 días)</h3><span class="bp-val">${ad.pct == null ? '—' : ad.pct + '%'}</span></div>
+          <div class="card-head"><h3>${icon('trend')} Adherencia</h3>
+            <div class="row" style="gap:8px"><div class="seg"><button data-act="adrange" data-v="7" class="${adDays === 7 ? 'active' : ''}">7 días</button><button data-act="adrange" data-v="30" class="${adDays === 30 ? 'active' : ''}">30 días</button></div>
+            <span class="bp-val">${ad.pct == null ? '—' : ad.pct + '%'}</span></div></div>
           ${ad.scheduled ? `<div class="progress"><div style="width:${ad.pct}%"></div></div>
             <div class="small muted" style="margin:6px 0 12px">${ad.taken} tomadas · ${ad.skipped} omitidas · ${ad.scheduled - ad.taken - ad.skipped} sin marcar</div>
             <div class="list">${ad.per.map(p => `<div class="item"><div class="item-body"><div class="item-title">${esc(p.med.name)}</div>
               <div class="progress" style="margin-top:6px"><div style="width:${Math.round(p.taken * 100 / p.scheduled)}%"></div></div></div>
-              <span class="num small">${p.taken}/${p.scheduled}</span></div>`).join('')}</div>`
+              <span class="num small" style="text-align:right">${Math.round(p.taken * 100 / p.scheduled)}%<br><span class="muted">${p.taken}/${p.scheduled}</span></span></div>`).join('')}</div>`
             : emptyState('trend', 'Aún no hay dosis para calcular')}
         </div>
       </div>
@@ -699,7 +1180,8 @@
             <div class="item-body"><div class="item-title">${esc(m.name)} ${doseLabel(m) ? `<span class="muted" style="font-weight:400">· ${esc(doseLabel(m))}</span>` : ''}</div>
               <div class="item-sub">${esc(schedLabel(m))}${m.end ? ' · hasta ' + fmtDate(m.end, { day: 'numeric', month: 'short' }) : ''}${m.active === false ? ' · Pausado' : ''}</div>
               ${m.active !== false && MS.isInterval(m) ? (() => { const n = MS.nextDoses(m, new Date(), 1)[0]; return n ? `<div class="item-sub" style="color:var(--primary)">Próxima toma: ${relDay(n.date)} ${n.time}</div>` : ''; })() : ''}
-              ${m.notes ? `<div class="item-sub">${esc(m.notes)}</div>` : ''}</div>
+              ${m.notes ? `<div class="item-sub">${esc(m.notes)}</div>` : ''}
+              ${stockLine(m)}</div>
             <div class="item-actions">
               <button class="icon-btn" data-act="edit-med" data-id="${m.id}" aria-label="Editar">${icon('edit')}</button>
               <button class="icon-btn danger" data-act="del-med" data-id="${m.id}" aria-label="Eliminar">${icon('trash')}</button></div>
@@ -707,6 +1189,32 @@
           : emptyState('pill', 'No has agregado medicamentos', `<button class="btn ghost small" style="margin-top:10px" data-act="new-med">${icon('plus')} Agregar medicamento</button>`)}
       </div>
     </div>`;
+  }
+
+  // Inventario en la lista de medicamentos
+  const unitWord = (m, n) => { const P = PRESENTATIONS[m.form]; return P ? (n === 1 ? P.u1 : P.u2) : 'unidades'; };
+  function stockLine(m) {
+    const st = MS.medStock(m, state.intakes);
+    if (!st) return m.active !== false ? `<button class="link-btn small" data-act="med-refill" data-id="${m.id}">${icon('plus')} Registrar cuántas tienes</button>` : '';
+    const color = st.low ? 'var(--danger)' : 'var(--muted)';
+    return `<div class="item-sub row" style="gap:8px;color:${color}">${st.low ? icon('alert') : ''}Quedan ${String(st.left).replace('.', ',')} ${unitWord(m, st.left)}${st.days != null ? ` · ~${st.days} día${st.days === 1 ? '' : 's'}` : ''}
+      <button class="link-btn small" data-act="med-refill" data-id="${m.id}">Resurtí</button></div>`;
+  }
+  const lowStockMeds = () => state.meds.filter(m => m.active !== false && (!m.end || m.end >= today())).map(m => ({ m, st: MS.medStock(m, state.intakes) })).filter(x => x.st && x.st.low);
+  function refillForm(m) {
+    const st = MS.medStock(m, state.intakes);
+    modal({
+      title: st ? `Resurtir ${m.name}` : `¿Cuántas ${unitWord(m, 2)} tienes?`,
+      body: `${st ? `<p class="small muted" style="margin-top:0">Te quedan ${String(st.left).replace('.', ',')} ${unitWord(m, st.left)}.</p>` : ''}
+        <label class="field"><span>${st ? `${cap(unitWord(m, 2))} que compraste o te dieron` : `${cap(unitWord(m, 2))} que tienes ahora`}</span>
+          <input type="number" name="n" inputmode="decimal" min="0" step="any" required placeholder="Ej. 30"></label>`,
+      onSubmit: async f => {
+        if (!f.reportValidity()) return false;
+        const n = +f.n.value;
+        await DB.put('meds', Object.assign({}, m, { stock: (st ? st.left : 0) + n, stockAt: new Date().toISOString(), refillDays: m.refillDays || 5 }));
+        await load(); render(); toast('Inventario actualizado', 'check');
+      }
+    });
   }
 
   // Interpreta la dosis escrita a mano en versiones anteriores ("50 mg · 1 tableta")
@@ -736,6 +1244,7 @@
     const round5 = timeKey(new Date(Math.floor(now.getTime() / 300000) * 300000));
     m = m || { mode: 'interval', every: 8, firstTime: round5, qty: 1, form: 'tableta', unit: 'mg', times: ['08:00'], days: [0, 1, 2, 3, 4, 5, 6], start: today(), active: true };
     const legacy = !m.form && !m.strength && !m.qty ? parseLegacyDose(m.dose) : {};
+    const stock0 = m.id ? MS.medStock(m, state.intakes) : null;
     const v = Object.assign({}, m, legacy);
     const mode = MS.isInterval(m) ? 'interval' : m.id ? 'times' : 'interval';
     const days = v.days && v.days.length ? v.days : [0, 1, 2, 3, 4, 5, 6];
@@ -779,6 +1288,12 @@
         </div>
         <div class="preview-box" id="medPreview"></div>
         <label class="field"><span>Indicaciones</span><textarea name="notes" placeholder="Ej. en ayunas, con alimentos…">${esc(v.notes)}</textarea></label>
+        <div class="form-section">Inventario (opcional)</div>
+        <div class="fields">
+          <label class="field"><span>Unidades que tienes ahora</span><input type="number" name="stock" inputmode="decimal" min="0" step="any" placeholder="Ej. 30" value="${stock0 ? stock0.left : ''}"></label>
+          <label class="field"><span>Avisarme cuando alcance para</span><select name="refillDays">${[3, 5, 7, 10].map(n => `<option value="${n}" ${(+v.refillDays || 5) === n ? 'selected' : ''}>${n} días</option>`).join('')}</select></label>
+        </div>
+        <div class="small muted" style="margin-top:-6px">Se descuenta la cantidad por toma cada vez que marcas una dosis como tomada.</div>
         <label class="check"><input type="checkbox" name="active" ${v.active !== false ? 'checked' : ''}> Activo (recibir recordatorios)</label>`,
       onOpen: f => {
         bindTimes(f);
@@ -843,6 +1358,18 @@
           start: f.start.value, end: f.end.value, notes: f.notes.value.trim(), active: f.active.checked
         });
         med.dose = doseLabel(Object.assign({}, med, { dose: m.dose || '' }));
+        // Inventario: solo se reinicia el conteo si cambiaste la cantidad
+        const stockIn = f.stock.value === '' ? null : +f.stock.value;
+        med.refillDays = +f.refillDays.value;
+        if (stockIn == null) { med.stock = null; med.stockAt = null; }
+        else if (!stock0 || stockIn !== stock0.left) { med.stock = stockIn; med.stockAt = new Date().toISOString(); }
+        // Historial de cambios (para el resumen de la consulta)
+        const was = m.id ? `${doseLabel(m)} · ${schedLabel(m)}` : '';
+        const now = `${doseLabel(med)} · ${schedLabel(med)}`;
+        if (!m.id) med.created = today();
+        else if (was !== now || (m.active !== false) !== med.active) {
+          med.history = (m.history || []).concat({ date: today(), from: was + (m.active === false ? ' (pausado)' : ''), to: now + (med.active ? '' : ' (pausado)') }).slice(-20);
+        }
         await DB.put('meds', med);
         await load(); render(); toast('Medicamento guardado', 'check');
       }
@@ -860,8 +1387,10 @@
       <div class="item-body"><div class="item-title">${esc(a.title)}</div>
         <div class="item-sub">${relDay(a.date)}${a.time ? ' · ' + a.time : ''} · ${t.label}${a.done ? ' · Realizada' : past ? ' · Pasada' : ''}</div>
         ${a.doctor || a.place ? `<div class="item-sub">${[a.doctor, a.place].filter(Boolean).map(esc).join(' — ')}</div>` : ''}
-        ${a.notes ? `<div class="item-sub">${esc(a.notes)}</div>` : ''}</div>
+        ${a.notes ? `<div class="item-sub">${esc(a.notes)}</div>` : ''}
+        ${a.outcome ? `<div class="item-sub outcome">${icon('chat')} ${esc(a.outcome)}</div>` : ''}</div>
       <div class="item-actions">
+        ${a.done && a.type === 'consulta' ? `<button class="icon-btn" data-act="appt-outcome" data-id="${a.id}" title="Indicaciones del médico" aria-label="Indicaciones del médico">${icon('chat')}</button>` : ''}
         ${!a.done ? `<button class="icon-btn" data-act="appt-done" data-id="${a.id}" title="Marcar como realizada" aria-label="Realizada">${icon('check')}</button>` : ''}
         ${a.type === 'examen' && (a.done || past) ? `<button class="icon-btn" data-act="appt-results" data-id="${a.id}" title="Registrar resultados" aria-label="Registrar resultados" style="color:var(--pulse)">${icon('flask')}</button>` : ''}
         <button class="icon-btn hide-mobile" data-act="appt-ics" data-id="${a.id}" title="Añadir a calendario" aria-label="Añadir a calendario">${icon('calPlus')}</button>
@@ -920,6 +1449,30 @@
       ${past.length ? `<details class="card"><summary style="cursor:pointer;font-weight:600">Historial (${past.length})</summary>
         <div class="list" style="margin-top:8px">${past.slice(0, 50).map(apptItem).join('')}</div></details>` : ''}
     </div>`;
+  }
+
+  // Al terminar una consulta: lo que indicó el médico (queda en el historial y en el resumen)
+  function consultOutcomeForm(a) {
+    const qs = (state.settings.questions || []).filter(q => !q.done);
+    modal({
+      title: 'Consulta realizada',
+      body: `<div class="small muted" style="margin-top:0">${esc(a.title)} · ${relDay(a.date)}${a.time ? ' ' + a.time : ''}</div>
+        <label class="field"><span>¿Qué te indicó el médico?</span><textarea name="outcome" rows="4" placeholder="Ej. subir losartán a 100 mg, análisis en 3 meses, bajar la sal…">${esc(a.outcome)}</textarea></label>
+        ${qs.length ? `<div class="field"><span>Preguntas que llevabas (marca las que ya resolviste)</span>
+          <div class="stack-v" style="gap:6px">${qs.map(q => `<label class="check"><input type="checkbox" name="q" value="${q.id}" checked> ${esc(q.text)}</label>`).join('')}</div></div>` : ''}
+        <p class="small muted" style="margin:0">Si te cambiaron un medicamento, edítalo en <b>Medicamentos</b>: el cambio queda guardado en tu historial.</p>`,
+      onSubmit: async f => {
+        a.done = true; a.outcome = f.outcome.value.trim(); a.doneAt = today();
+        await DB.put('appts', a);
+        const solved = new Set($$('input[name="q"]:checked', f).map(i => i.value));
+        if (solved.size) {
+          state.settings.questions = (state.settings.questions || []).map(q => solved.has(q.id) ? Object.assign({}, q, { done: true, answeredAt: today() }) : q);
+          await saveSettings();
+        }
+        await load(); render();
+        toast('Consulta guardada', 'check', { label: 'Medicamentos', fn: () => { location.hash = '#/medicamentos'; } });
+      }
+    });
   }
 
   function apptForm(a, date) {
@@ -1099,7 +1652,7 @@
             <td>${fmtDate(v.date, { weekday: 'short', day: '2-digit', month: 'short', year: '2-digit' })}</td><td class="num">${v.time}</td>
             <td class="num" style="color:var(--sys);font-weight:600">${v.sys ?? '—'}</td><td class="num" style="color:var(--dia);font-weight:600">${v.dia ?? '—'}</td>
             <td class="num">${v.pulse ?? '—'}</td><td>${c ? `<span style="color:${c.color};font-weight:600">● ${c.label}</span>` : '—'}</td>
-            <td class="small">${[v.temp && v.temp + '°C', v.spo2 && 'SpO₂ ' + v.spo2 + '%', v.glucose && v.glucose + ' mg/dL', v.weight && v.weight + ' kg', v.arm, v.position].filter(Boolean).join(' · ')}</td>
+            <td class="small">${vitalOther(v, true)}</td>
             <td class="wrap small">${esc(v.notes)}</td></tr>`; }).join('')}
           </tbody></table></div></div>
         <p class="small muted">Este reporte es informativo y no sustituye la valoración de un profesional de la salud.</p>`}
@@ -1161,10 +1714,18 @@
       list: list.map(v => ({
         ts: +vitalTime(v), time: v.time, sys: v.sys, dia: v.dia, pulse: v.pulse, cat: bpCategory(v.sys, v.dia),
         dateLabel: cap(fmtDate(v.date, { weekday: 'short' })).replace('.', '') + ' ' + fmtDate(v.date, { day: '2-digit', month: '2-digit', year: 'numeric' }),
-        other: [v.temp && v.temp + ' °C', v.spo2 && 'SpO2 ' + v.spo2 + '%', v.glucose && v.glucose + ' mg/dL', v.weight && v.weight + ' kg', v.arm, v.position].filter(Boolean).join(' · '),
+        other: vitalOther(v, false),
         notes: v.notes || ''
       }))
     };
+  }
+
+  // Columna "Otros" del reporte: signos adicionales, número de lecturas promediadas y contexto
+  function vitalOther(v, html) {
+    const parts = [v.temp && v.temp + ' °C', v.spo2 && (html ? 'SpO₂ ' : 'SpO2 ') + v.spo2 + '%', v.glucose && v.glucose + ' mg/dL', v.weight && v.weight + ' kg', v.arm, v.position,
+      v.readings && v.readings.length > 1 && `prom. de ${v.readings.length} lecturas`,
+      ...(v.tags || []).map(t => tagLabel(t).replace(/^\S+\s/, ''))].filter(Boolean).join(' · ');
+    return html ? esc(parts) : parts;
   }
 
   const isMobile = () => matchMedia('(pointer: coarse)').matches || /iphone|ipad|android/i.test(navigator.userAgent);
@@ -1190,10 +1751,11 @@
   function reportCSV() {
     const { list } = reportData();
     const q = s => `"${String(s ?? '').replace(/"/g, '""')}"`;
-    const rows = [['Fecha', 'Hora', 'Sistólica', 'Diastólica', 'Pulso', 'Clasificación', 'Temperatura', 'SpO2', 'Glucosa', 'Peso', 'Brazo', 'Posición', 'Notas']];
+    const rows = [['Fecha', 'Hora', 'Sistólica', 'Diastólica', 'Pulso', 'Clasificación', 'Temperatura', 'SpO2', 'Glucosa', 'Peso', 'Brazo', 'Posición', 'Lecturas', 'Contexto', 'Notas']];
     for (const v of list) {
       const c = bpCategory(v.sys, v.dia);
-      rows.push([v.date, v.time, v.sys, v.dia, v.pulse, c ? c.label : '', v.temp, v.spo2, v.glucose, v.weight, v.arm, v.position, v.notes]);
+      rows.push([v.date, v.time, v.sys, v.dia, v.pulse, c ? c.label : '', v.temp, v.spo2, v.glucose, v.weight, v.arm, v.position,
+        v.readings ? v.readings.length : 1, (v.tags || []).map(t => tagLabel(t).replace(/^\S+\s/, '')).join(', '), v.notes]);
     }
     return '\uFEFF' + rows.map(r => r.map(q).join(';')).join('\r\n');
   }
@@ -1614,6 +2176,8 @@
           ${sw('notifyAppts', 'Citas y exámenes', 'Según el recordatorio de cada evento', 'calendar')}
           ${sw('notifyBP', 'Tomar la presión', 'Recordatorio diario para medirte', 'heart')}
           ${sw('notifyWater', 'Tomar agua', 'Si vas atrasado con tu meta (ajústalo en Inicio → Agua)', 'droplet')}
+          ${sw('notifyStock', 'Medicamento por acabarse', 'Aviso a las 10:00 cuando te alcance para pocos días', 'pill')}
+          ${sw('weeklySummary', 'Resumen semanal', 'Domingo a las 19:00', 'chat')}
           <div class="field" style="padding:4px 0 12px"><span>Horarios para medir la presión</span><div id="bpTimes">${timesEditor(s.bpTimes || [], 'bpTimes')}</div></div>
           ${pushCard()}
           <button class="btn outline block" data-act="test-notif" ${ns.ok ? '' : 'disabled'} style="margin-top:8px">${icon('bell')} Enviar notificación de prueba (este dispositivo)</button>
@@ -1702,6 +2266,8 @@
 
     'new-med': () => medForm(),
     'edit-med': el => medForm(state.meds.find(m => m.id === el.dataset.id)),
+    'med-refill': el => refillForm(state.meds.find(m => m.id === el.dataset.id)),
+    adrange: el => { state.adRange = +el.dataset.v; render(); },
     'del-med': async el => {
       const m = state.meds.find(x => x.id === el.dataset.id);
       if (await confirmDlg('Eliminar medicamento', `¿Eliminar <b>${esc(m.name)}</b>? El historial de tomas se conserva.`)) { await DB.del('meds', m.id); await load(); render(); toast('Eliminado'); }
@@ -1725,7 +2291,12 @@
     'del-appt': async el => {
       if (await confirmDlg('Eliminar evento', '¿Eliminar esta cita o examen?')) { await DB.del('appts', el.dataset.id); await load(); render(); toast('Eliminado'); }
     },
-    'appt-done': async el => { const a = state.appts.find(x => x.id === el.dataset.id); a.done = true; await DB.put('appts', a); await load(); render(); toast('Marcada como realizada', 'check'); },
+    'appt-done': async el => {
+      const a = state.appts.find(x => x.id === el.dataset.id);
+      if (a.type === 'consulta') return consultOutcomeForm(a);
+      a.done = true; await DB.put('appts', a); await load(); render(); toast('Marcada como realizada', 'check');
+    },
+    'appt-outcome': el => consultOutcomeForm(state.appts.find(x => x.id === el.dataset.id)),
     'appt-results': el => {
       const a = state.appts.find(x => x.id === el.dataset.id);
       labChooser({ date: a.date <= today() ? a.date : today(), lab: a.place || a.doctor || '', apptId: a.id });
@@ -1802,6 +2373,34 @@
     'water-add': el => addWater(el.dataset.ml),
     'water-goal': () => waterGoalForm(),
     'home-layout': () => homeLayoutForm(),
+    'habit-add': el => addHabit(el.dataset.type, el.dataset.v),
+    'habit-minus': el => removeLastHabit(el.dataset.type),
+    'habit-goals': () => habitGoalsForm(),
+    'habit-custom': el => modal({
+      title: 'Agregar ejercicio',
+      body: `<label class="field"><span>Minutos</span><input type="number" name="v" inputmode="numeric" min="1" max="600" value="45" required></label>`,
+      onSubmit: f => { if (!f.reportValidity()) return false; setTimeout(() => addHabit(el.dataset.type, f.v.value), 0); }
+    }),
+    'habit-weight': () => {
+      const ws = weightSeries();
+      modal({
+        title: 'Registrar peso',
+        body: `<label class="field"><span>Peso (kg)</span><input type="number" name="v" inputmode="decimal" min="20" max="300" step="0.1" value="${ws.length ? ws[ws.length - 1].w : ''}" required></label>
+          <p class="small muted" style="margin:0">Se guarda en Hábitos (no aparece en los reportes).</p>`,
+        onSubmit: f => { if (!f.reportValidity()) return false; setTimeout(() => addHabit('weight', f.v.value), 0); }
+      });
+    },
+    'share-week': () => shareText('Mi semana en Latidia', summaryText('week')),
+    'share-consult': () => shareText('Resumen para mi consulta', summaryText('consult')),
+    'summary-pdf': () => { state.report = { preset: '', from: summarySince(), to: today(), meds: true, labs: true }; location.hash = '#/reportes'; },
+    'q-done': async el => {
+      state.settings.questions = (state.settings.questions || []).map(q => q.id === el.dataset.id ? Object.assign({}, q, { done: true, answeredAt: today() }) : q);
+      await saveSettings(); render();
+    },
+    'q-del': async el => {
+      state.settings.questions = (state.settings.questions || []).filter(q => q.id !== el.dataset.id);
+      await saveSettings(); render();
+    },
     'water-custom': () => modal({
       title: 'Agregar agua',
       body: `<label class="field"><span>Cantidad (ml)</span><input type="number" name="ml" inputmode="numeric" min="10" max="5000" step="10" value="350" required></label>`,
@@ -1926,7 +2525,7 @@
       const m = Math.round((Date.now() - new Date(iso)) / 60000);
       return m < 1 ? 'ahora' : m < 60 ? `hace ${m} min` : m < 1440 ? `hace ${Math.round(m / 60)} h` : new Date(iso).toLocaleDateString('es', { day: 'numeric', month: 'short' });
     };
-    const logIc = { med: 'pill', bp: 'heart', appt: 'calendar', water: 'droplet' };
+    const logIc = { med: 'pill', bp: 'heart', appt: 'calendar', water: 'droplet', stock: 'pill', week: 'chat' };
     return `
       ${perm !== 'granted' ? `<div class="banner ${perm === 'denied' ? 'warn' : ''}">${icon('bell')}<div class="item-body small">${
         perm === 'denied' ? 'Las notificaciones están bloqueadas. Habilítalas en la configuración del navegador o del iPhone (Ajustes → Notificaciones → Latidia).'
