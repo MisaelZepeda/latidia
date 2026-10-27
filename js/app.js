@@ -896,11 +896,16 @@
         <label class="field"><span>Notas</span><textarea name="notes" placeholder="Ej. después de caminar, con dolor de cabeza…">${val('notes')}</textarea></label>`,
       onOpen: f => {
         const upd = () => {
-          const rs = readReadings(f), m = avgReadings(rs);
+          const all = readReadings(f);
+          // Solo valores en rango para el promedio; los demás se señalan
+          const ok = o => (o.sys == null || (o.sys >= 50 && o.sys <= 300)) && (o.dia == null || (o.dia >= 30 && o.dia <= 200)) && (o.pulse == null || (o.pulse >= 20 && o.pulse <= 250));
+          const badIdx = all.map((o, i) => ok(o) ? 0 : i + 1).filter(Boolean);
+          const rs = all.filter(ok), m = avgReadings(rs);
           const c = bpCategory(m.sys, m.dia);
           const bp = rs.filter(x => x.sys && x.dia);
           const spread = bp.length > 1 ? Math.max(Math.max(...bp.map(x => x.sys)) - Math.min(...bp.map(x => x.sys)), Math.max(...bp.map(x => x.dia)) - Math.min(...bp.map(x => x.dia))) : 0;
           $('#bpPreview').innerHTML = (bp.length > 1 ? `<span class="small"><b>Promedio:</b> ${m.sys}/${m.dia}${m.pulse ? ` · ${m.pulse} lpm` : ''}</span> ` : '') + (c ? catChip(c) : '')
+            + (badIdx.length ? `<div class="small" style="color:var(--danger);margin-top:4px">Revisa la lectura ${badIdx.join(' y ')}: hay un valor fuera de rango.</div>` : '')
             + (spread > 10 ? `<div class="small" style="color:var(--warn);margin-top:4px">Hay más de 10 mmHg de diferencia entre lecturas. Descansa 1–2 minutos y mide otra vez.</div>` : '')
             + (isUrgentBP(m) ? ' <span class="small" style="color:var(--danger)">Presión muy alta: si tienes síntomas, busca atención médica de inmediato.</span>' : '');
         };
