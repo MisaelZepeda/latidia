@@ -5,7 +5,7 @@
   --surface-2: #eef2f8;
   --border: #dde3ec;
   --text: #0f1a2b;
-  --muted: #5a6678;
+  --muted: #4b5768;
   --primary: #1d4ed8;
   --primary-2: #38bdf8;
   --primary-soft: #dbeafe;
@@ -32,7 +32,7 @@
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     --bg: #0a1220; --surface: #111c2e; --surface-2: #17243a; --border: #243450;
-    --text: #e6edf7; --muted: #93a1b8; --primary: #60a5fa; --primary-2: #38bdf8;
+    --text: #e6edf7; --muted: #a9b6ca; --primary: #60a5fa; --primary-2: #38bdf8;
     --primary-soft: #172b4d; --on-primary: #06173a; --danger: #f87171; --danger-soft: #3b1618;
     --sys: #fb7185; --dia: #60a5fa; --pulse: #c084fc;
     --bp-normal: #4ade80; --bp-elev: #facc15; --bp-h1: #fb923c; --bp-h2: #f87171; --bp-crisis: #fca5a5; --bp-low: #38bdf8;
@@ -42,7 +42,7 @@
 }
 :root[data-theme="dark"] {
   --bg: #0a1220; --surface: #111c2e; --surface-2: #17243a; --border: #243450;
-  --text: #e6edf7; --muted: #93a1b8; --primary: #60a5fa; --primary-2: #38bdf8;
+  --text: #e6edf7; --muted: #a9b6ca; --primary: #60a5fa; --primary-2: #38bdf8;
   --primary-soft: #172b4d; --on-primary: #06173a; --danger: #f87171; --danger-soft: #3b1618;
   --sys: #fb7185; --dia: #60a5fa; --pulse: #c084fc;
   --bp-normal: #4ade80; --bp-elev: #facc15; --bp-h1: #fb923c; --bp-h2: #f87171; --bp-crisis: #fca5a5; --bp-low: #38bdf8;
@@ -53,9 +53,11 @@
 /* ============ Base ============ */
 * { box-sizing: border-box; }
 html, body { margin: 0; }
+html[data-text="grande"] { font-size: 112.5%; }
+html[data-text="muy"] { font-size: 125%; }
 body {
   background: var(--bg); color: var(--text);
-  font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font: .9375rem/1.5 system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   -webkit-font-smoothing: antialiased; -webkit-tap-highlight-color: transparent;
 }
 h1, h2, h3 { margin: 0; line-height: 1.25; }
@@ -315,6 +317,83 @@ a { color: var(--primary); }
 .swatches input:checked + span { outline: 3px solid var(--primary); outline-offset: 2px; }
 .shape-pick input:focus-visible + span, .swatches input:focus-visible + span { outline: 2px solid var(--primary); outline-offset: 2px; }
 
+/* Toques cómodos en pantallas táctiles */
+@media (pointer: coarse) { .icon-btn { width: 44px; height: 44px; } }
+
+/* Inicio: estado, "Ahora", plegar, tomar todas */
+.greet-status { color: var(--muted); margin-top: 2px; }
+.now-card { border-color: color-mix(in srgb, var(--primary) 35%, var(--border)); }
+.now-card .item { gap: 10px; }
+.now-ok { display: flex; align-items: center; gap: 12px; color: var(--ok); }
+.now-ok .ic { width: 28px; height: 28px; }
+.fold-btn { margin-left: auto; width: 32px !important; height: 32px !important; }
+.fold-btn .ic { transition: transform .2s; }
+.hw.folded .fold-btn .ic { transform: rotate(-90deg); }
+.hw.folded .card > :not(.card-head) { display: none; }
+.hw.folded .card-head { margin-bottom: 0; }
+.dose-group { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 0 4px; font-size: .82rem; font-weight: 600; color: var(--muted); }
+
+/* Deslizar dosis */
+.item.dose { position: relative; background: var(--surface); touch-action: pan-y; }
+.item.dose.sw-right { background: color-mix(in srgb, var(--ok) 14%, var(--surface)); }
+.item.dose.sw-left { background: var(--surface-2); }
+.item.dose.sw-right::before, .item.dose.sw-left::before { position: absolute; top: 50%; transform: translateY(-50%); font-size: .8rem; font-weight: 700; }
+.item.dose.sw-right::before { content: "✓ Tomada"; right: calc(100% + 10px); color: var(--ok); }
+.item.dose.sw-left::before { content: "Omitir"; left: calc(100% + 10px); color: var(--muted); }
+.item.dose.sw-ready.sw-right { background: color-mix(in srgb, var(--ok) 26%, var(--surface)); }
+
+/* Registro rápido */
+.quick-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; }
+.quick-item { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 14px; border-radius: 16px; border: 1px solid var(--border); background: var(--surface); color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.quick-item small { color: var(--muted); font-size: .8rem; }
+.quick-ic { width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; margin-bottom: 4px; }
+@media (hover: hover) { .quick-item:hover { border-color: var(--primary); } }
+.quick-item:active { transform: scale(.97); }
+
+/* Animaciones */
+@keyframes fadeUp { from { opacity: .35; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@keyframes grow { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+.view.enter > * { animation: fadeUp .28s ease-out; }
+.view.enter .progress > div { transform-origin: left; animation: grow .7s ease-out; }
+.toast { animation: fadeUp .2s ease-out; }
+@media (prefers-reduced-motion: reduce) { .view.enter > *, .view.enter .progress > div, .toast { animation: none; } }
+
+/* Esqueleto de carga */
+@keyframes shimmer { from { background-position: -400px 0; } to { background-position: 400px 0; } }
+.skel { background: linear-gradient(90deg, var(--surface) 0, var(--surface-2) 50%, var(--surface) 100%); background-size: 800px 100%; animation: shimmer 1.2s linear infinite; }
+
+/* Ventanas tipo hoja en el celular: agarradera para deslizar */
+@media (max-width: 600px) {
+  .modal-head { position: relative; padding-top: 22px; touch-action: none; }
+  .modal-head::before { content: ""; position: absolute; top: 8px; left: 50%; width: 40px; height: 5px; margin-left: -20px; border-radius: 3px; background: var(--border); }
+}
+
+/* Signos: meta, calendario y detalle */
+.goal-stat { display: flex; align-items: center; gap: 10px; margin: -4px 0 10px; flex-wrap: wrap; }
+.goal-stat .progress { min-width: 100px; }
+.cal-heat { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; }
+.cal-dow { text-align: center; font-size: .7rem; color: var(--muted); font-weight: 600; }
+.cal-day { aspect-ratio: 1; border-radius: 8px; border: 0; background: var(--surface-2); color: var(--muted); font: inherit; font-size: .78rem; cursor: default; padding: 0; }
+.cal-day.has { color: #fff; font-weight: 700; cursor: pointer; text-shadow: 0 1px 2px rgba(0,0,0,.35); }
+.cal-day.today { outline: 2px solid var(--primary); outline-offset: 1px; }
+.pop { position: fixed; z-index: 60; width: min(320px, calc(100vw - 16px)); max-height: 60vh; overflow-y: auto; background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 14px; box-shadow: 0 12px 40px rgba(0,0,0,.25); padding: 8px 12px 10px; }
+.pop-head { display: flex; align-items: center; justify-content: space-between; }
+.pop-row { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-top: 1px solid var(--border); }
+.pop-row > div { flex: 1; min-width: 0; }
+.chart .hit { cursor: pointer; }
+
+/* Guía de bienvenida */
+.ob { display: flex; flex-direction: column; gap: 12px; }
+.ob p { margin: 0; }
+.ob-hero { width: 72px; height: 72px; border-radius: 22px; display: grid; place-items: center; background: linear-gradient(135deg, var(--primary), var(--primary-2)); color: #fff; }
+.ob-hero .ic { width: 36px; height: 36px; }
+.ob-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 10px; }
+.ob-list li { display: flex; align-items: center; gap: 10px; }
+.ob-list .ic { color: var(--primary); }
+.ob-dots { display: flex; gap: 6px; justify-content: center; margin-top: 4px; }
+.ob-dots i { width: 8px; height: 8px; border-radius: 50%; background: var(--border); }
+.ob-dots i.on { background: var(--primary); width: 22px; border-radius: 4px; }
+
 /* Agua */
 .water-top { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 12px; }
 .water-total { font-size: 2rem; font-weight: 700; line-height: 1.1; color: var(--primary); }
@@ -534,7 +613,7 @@ input[type="date"]::-webkit-date-and-time-value, input[type="time"]::-webkit-dat
 input[type="date"]::-webkit-calendar-picker-indicator { margin-left: auto; }
 @media (max-width: 600px) {
   /* 16px evita que iOS haga zoom al escribir (el zoom deja la página "desbordada") */
-  input, select, textarea { font-size: 16px; }
+  input, select, textarea { font-size: max(16px, 1rem); }
   .fields { grid-template-columns: repeat(auto-fit, minmax(min(140px, 100%), 1fr)); }
   .seg button { padding: 7px 10px; }
   .item-actions .icon-btn { width: 36px; }

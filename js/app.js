@@ -137,6 +137,7 @@
     state.water = water.sort((a, b) => a.at.localeCompare(b.at));
     state.habits = (await DB.all('habits')).sort((a, b) => a.at.localeCompare(b.at));
     state.settings = Object.assign({}, DEFAULT_SETTINGS, settings);
+    applyTextSize();
     if (!settings.bpTimes) await DB.setKV('settings', state.settings); // el service worker lee estos valores
     state.vitals = vitals.sort((a, b) => (b.date + b.time).localeCompare(a.date + a.time));
     state.meds = meds.sort((a, b) => a.name.localeCompare(b.name));
@@ -146,10 +147,16 @@
     if (typeof started !== 'undefined' && started && Cloud.user) schedulePushSync();
   }
   const saveSettings = () => DB.setKV('settings', state.settings);
+  function applyTextSize() {
+    const t = state.settings.textSize;
+    if (t && t !== 'normal') document.documentElement.dataset.text = t; else delete document.documentElement.dataset.text;
+  }
   const intakeMap = () => new Map(state.intakes.map(i => [i.id, i]));
 
   // ---------- UI helpers ----------
+  const haptic = (ms = 12) => { try { if (navigator.vibrate) navigator.vibrate(ms); } catch (_) {} };
   function toast(msg, ic, action) {
+    if (ic === 'check' || ic === 'droplet') haptic();
     const el = document.createElement('div');
     el.className = 'toast';
     el.innerHTML = (ic ? icon(ic) : '') + `<span>${esc(msg)}</span>`;
@@ -184,6 +191,26 @@
     if (onOpen) onOpen(form);
     return form;
   }
+  (function sheetDrag() {
+    const dlg = $('#modal');
+    let y0 = 0, dy = 0, drag = false;
+    dlg.addEventListener('touchstart', e => {
+      if (innerWidth > 600 || !e.target.closest('.modal-head')) return;
+      y0 = e.touches[0].clientY; dy = 0; drag = true; dlg.style.transition = 'none';
+    }, { passive: true });
+    dlg.addEventListener('touchmove', e => {
+      if (!drag) return;
+      dy = Math.max(0, e.touches[0].clientY - y0);
+      dlg.style.transform = `translateY(${dy}px)`;
+    }, { passive: true });
+    const end = () => {
+      if (!drag) return;
+      drag = false; dlg.style.transition = 'transform .2s';
+      if (dy > 110) { dlg.style.transform = 'translateY(100%)'; setTimeout(() => { dlg.close(); dlg.style.transform = ''; dlg.style.transition = ''; }, 180); }
+      else { dlg.style.transform = ''; setTimeout(() => { dlg.style.transition = ''; }, 200); }
+    };
+    dlg.addEventListener('touchend', end); dlg.addEventListener('touchcancel', end);
+  })();
   const confirmDlg = (title, text, submit = 'Eliminar') => new Promise(res => {
     let done = false;
     const finish = v => { if (!done) { done = true; res(v); } };
@@ -273,8 +300,11 @@
     $$('#bottomNav [data-route]').forEach(a => a.classList.toggle('active', a.dataset.route === (route.group || route.id)));
     const view = $('#view');
     view.innerHTML = route.render();
-    if (route.fab) view.insertAdjacentHTML('beforeend', `<button class="fab" data-act="fab" aria-label="Agregar">${icon('plus')}</button>`);
+    if (changed) { view.classList.remove('enter'); void view.offsetWidth; view.classList.add('enter'); clearTimeout(render.enterT); render.enterT = setTimeout(() => view.classList.remove('enter'), 900); }
+    view.insertAdjacentHTML('beforeend', `<button class="fab" data-act="fab" aria-label="Registro rápido">${icon('plus')}</button>`);
     if (route.after) route.after();
+    bindSwipes(view);
+    if (route.id === 'inicio') bindCollapse(view);
     if (changed) window.scrollTo(0, 0);
     refreshNotifCenter();
     if (params.get('nuevo') && route.fab) {
@@ -337,7 +367,7 @@
           <div class="card-head"><h3>${icon('pill')} Medicamentos de hoy</h3><a href="#/medicamentos" class="small">Ver todo</a></div>
           ${doses.length ? `<div class="progress" style="margin-bottom:6px"><div style="width:${Math.round(takenN * 100 / doses.length)}%"></div></div>
             <div class="small muted" style="margin-bottom:4px">${takenN} de ${doses.length} tomada${doses.length === 1 ? '' : 's'}${skippedN ? ` · ${skippedN} omitida${skippedN === 1 ? '' : 's'}` : ''}${takenN + skippedN ? ` · <a href="#/medicamentos" data-act="meds-today">Ver o modificar</a>` : ''}</div>
-            ${pendingToday.length ? `<div class="list">${pendingToday.map(d => doseItem(d, im)).join('')}</div>`
+            ${pendingToday.length ? `<div class="list">${doseGroups(pendingToday, im)}</div>`
               : `<div class="empty" style="padding:18px 8px">${icon('check')}<div><b>¡Listo!</b> Registraste todas tus dosis de hoy.</div></div>`}`
             : emptyState('pill', 'No hay dosis programadas hoy', `<button class="btn ghost small" style="margin-top:10px" data-act="new-med">${icon('plus')} Agregar medicamento</button>`)}
         </div>`,
@@ -352,10 +382,17 @@
           <div data-chart="home"></div>
         </div>`
     };
+    W.ahora = () => nowCard();
     const shown = homeLayout().filter(w => w.on);
+    const due = doses.filter(d => at(today(), d.time) <= new Date());
+    const dueTaken = due.filter(d => im.get(d.key)?.status === 'taken').length;
+    const status = !doses.length ? '' : !due.length ? `Hoy tienes ${doses.length} dosis programada${doses.length === 1 ? '' : 's'}.`
+      : dueTaken === due.length ? `Vas muy bien hoy: ${takenN} de ${doses.length} dosis ✅` : `Llevas ${takenN} de ${doses.length} dosis de hoy.`;
+    if (state.loading) return homeSkeleton(greet);
     return `
     <div class="stack-v">
-      <div><div class="muted">${cap(fmtLong(today()))}</div><h2 style="font-size:1.5rem">${greet}${s.name ? ', ' + esc(s.name.split(' ')[0]) : ''} 👋</h2></div>
+      <div><div class="muted">${cap(fmtLong(today()))}</div><h2 style="font-size:1.5rem">${greet}${s.name ? ', ' + esc(s.name.split(' ')[0]) : ''} 👋</h2>
+        ${status ? `<div class="greet-status">${status}</div>` : ''}</div>
       ${banners.join('')}
       <div class="home-grid">${shown.map(w => `<section class="hw${HOME_WIDGETS[w.id].wide ? ' wide' : ''}" data-w="${w.id}">${W[w.id]()}</section>`).join('')}</div>
       ${shown.length ? '' : `<div class="card">${emptyState('grid', 'Ocultaste todas las secciones de Inicio.')}</div>`}
@@ -363,8 +400,198 @@
     </div>`;
   }
 
+  // Dosis pendientes agrupadas por hora; con 2 o más a la misma hora, botón "Tomar todas"
+  function doseGroups(list, im) {
+    const now = new Date(), groups = new Map();
+    for (const d of list) { if (!groups.has(d.time)) groups.set(d.time, []); groups.get(d.time).push(d); }
+    return [...groups.entries()].map(([t, ds]) => {
+      const soon = at(today(), t) <= new Date(now.getTime() + 30 * 60000);
+      return (ds.length > 1 && soon ? `<div class="dose-group"><span>${t} · ${ds.length} medicamentos</span><button class="btn small" data-act="dose-all" data-keys="${ds.map(d => d.key).join(',')}">${icon('check')} Tomar todas</button></div>` : '')
+        + ds.map(d => doseItem(d, im)).join('');
+    }).join('');
+  }
+  async function markDoses(keys, status = 'taken') {
+    const before = medsDayOk(today());
+    for (const k of keys) await MS.markTaken(k, status);
+    await load(); render();
+    toast(`${keys.length} dosis marcada${keys.length === 1 ? '' : 's'} como ${status === 'taken' ? 'tomadas' : 'omitidas'}`, 'check', {
+      label: 'Deshacer', fn: async () => { for (const k of keys) await DB.del('intakes', k); await load(); render(); }
+    });
+    celebrateDoses(before);
+  }
+  function celebrateDoses(before) {
+    if (before !== true && medsDayOk(today()) === true && dosesForDate(state.meds, today()).every(d => intakeMap().get(d.key)?.status === 'taken'))
+      setTimeout(() => { toast('🎉 ¡Tomaste todas tus dosis de hoy!'); haptic([15, 60, 15]); }, 900);
+  }
+  // "Ahora": solo lo que toca en este momento, con su acción
+  function nowCard() {
+    const now = new Date(), d = today(), im = intakeMap(), lines = [];
+    const doses = dosesForDate(state.meds, d);
+    const due = doses.filter(x => !im.has(x.key) && at(d, x.time) <= new Date(now.getTime() + 15 * 60000));
+    if (due.length) {
+      lines.push({ ic: 'pill', color: 'var(--warn)', html: `<b>${due.length} dosis por tomar</b><div class="small muted">${[...new Set(due.map(x => x.time))].join(', ')} · ${esc(due.slice(0, 3).map(x => x.med.name).join(', '))}${due.length > 3 ? '…' : ''}</div>`,
+        btn: due.length > 1 ? `<button class="btn small" data-act="dose-all" data-keys="${due.map(x => x.key).join(',')}">Tomar todas</button>` : `<button class="btn small" data-act="dose" data-key="${due[0].key}">Tomada</button>` });
+    } else {
+      const next = doses.filter(x => !im.has(x.key) && at(d, x.time) > now)[0];
+      if (next) {
+        const mins = Math.round((at(d, next.time) - now) / 60000);
+        lines.push({ ic: 'clock', color: 'var(--primary)', html: `<b>Próxima dosis: ${next.time}</b><div class="small muted">${esc(next.med.name)} · en ${mins < 60 ? mins + ' min' : Math.round(mins / 60) + ' h'}</div>` });
+      }
+    }
+    if (state.settings.notifyBP !== false) {
+      const passed = (state.settings.bpTimes || []).filter(t => at(d, t) <= now);
+      const last = passed[passed.length - 1];
+      if (last) {
+        const since = timeKey(new Date(at(d, last).getTime() - 60 * 60000));
+        const done = state.vitals.some(v => v.date === d && v.sys && v.time >= since);
+        if (!done) lines.push({ ic: 'heart', color: 'var(--sys)', html: `<b>Toca medir tu presión</b><div class="small muted">Programada a las ${last}</div>`, btn: `<button class="btn small" data-act="new-vital">Registrar</button>` });
+      }
+    }
+    if (state.water.length || state.settings.waterMin) {
+      const { min } = waterGoal(), tot = waterSum(d);
+      if (tot < min) lines.push({ ic: 'droplet', color: '#0ea5e9', html: `<b>Agua: ${liters(tot)} de ${liters(min)}</b><div class="small muted">Te faltan ${liters(min - tot)}</div>`, btn: `<button class="btn ghost small" data-act="water-add" data-ml="250">+250 ml</button>` });
+    }
+    const appt = state.appts.find(a => !a.done && (a.date === d || a.date === addDays(d, 1)) && (a.date + 'T' + (a.time || '23:59')) >= d + 'T' + timeKey(now));
+    if (appt) lines.push({ ic: (APPT_TYPES[appt.type] || APPT_TYPES.otro).icon, color: 'var(--warn)', html: `<b>${appt.date === d ? 'Hoy' : 'Mañana'}${appt.time ? ' ' + appt.time : ''}: ${esc(appt.title)}</b>${appt.place ? `<div class="small muted">${esc(appt.place)}</div>` : ''}` });
+    return `<div class="card now-card">
+      <div class="card-head"><h3>${icon('clock')} Ahora</h3><span class="small muted">${timeKey(now)}</span></div>
+      ${lines.length ? `<div class="list">${lines.map(l => `<div class="item"><div class="item-ic" style="background:color-mix(in srgb, ${l.color} 15%, transparent);color:${l.color}">${icon(l.ic)}</div>
+        <div class="item-body">${l.html}</div>${l.btn || ''}</div>`).join('')}</div>`
+        : `<div class="now-ok">${icon('check')}<div><b>Todo al día</b><div class="small muted">No tienes nada pendiente en este momento.</div></div></div>`}
+    </div>`;
+  }
+  // Mientras llegan los datos de la nube en un dispositivo nuevo
+  function homeSkeleton(greet) {
+    const box = h => `<div class="card skel" style="height:${h}px"></div>`;
+    return `<div class="stack-v"><div><div class="muted">${cap(fmtLong(today()))}</div><h2 style="font-size:1.5rem">${greet} 👋</h2>
+      <div class="greet-status">Cargando tus datos…</div></div>${box(150)}${box(190)}<div class="grid cols-2">${box(220)}${box(220)}</div></div>`;
+  }
+
+  // Plegar secciones de Inicio (se recuerda en Ajustes)
+  function bindCollapse(view) {
+    const folded = new Set(state.settings.homeCollapsed || []);
+    for (const hw of $$('.hw', view)) {
+      const head = $('.card-head', hw);
+      if (!head || hw.dataset.w === 'ahora') continue;
+      hw.classList.toggle('folded', folded.has(hw.dataset.w));
+      const b = document.createElement('button');
+      b.type = 'button'; b.className = 'icon-btn fold-btn';
+      b.setAttribute('aria-label', 'Plegar o desplegar'); b.innerHTML = icon('down');
+      b.onclick = async e => {
+        e.stopPropagation();
+        const on = hw.classList.toggle('folded');
+        const list = new Set(state.settings.homeCollapsed || []);
+        on ? list.add(hw.dataset.w) : list.delete(hw.dataset.w);
+        state.settings.homeCollapsed = [...list];
+        await saveSettings();
+      };
+      head.appendChild(b);
+    }
+  }
+
+  // Deslizar una dosis: derecha = tomada, izquierda = omitir
+  function bindSwipes(view) {
+    for (const el of $$('.item.dose', view)) {
+      if (el.classList.contains('taken') || el.classList.contains('skipped')) continue;
+      const key = $('[data-key]', el)?.dataset.key;
+      if (!key) continue;
+      let x0 = 0, y0 = 0, dx = 0, active = false, locked = false;
+      el.addEventListener('touchstart', e => { const t = e.touches[0]; x0 = t.clientX; y0 = t.clientY; dx = 0; active = true; locked = false; }, { passive: true });
+      el.addEventListener('touchmove', e => {
+        if (!active) return;
+        const t = e.touches[0], mx = t.clientX - x0, my = t.clientY - y0;
+        if (!locked) { if (Math.abs(my) > 10 && Math.abs(my) > Math.abs(mx)) { active = false; return; } if (Math.abs(mx) > 10) locked = true; else return; }
+        dx = Math.max(-140, Math.min(140, mx));
+        el.style.transform = `translateX(${dx}px)`;
+        el.classList.toggle('sw-right', dx > 30); el.classList.toggle('sw-left', dx < -30);
+        el.classList.toggle('sw-ready', Math.abs(dx) > 90);
+      }, { passive: true });
+      const end = () => {
+        if (!active) return;
+        active = false;
+        const go = Math.abs(dx) > 90 ? (dx > 0 ? 'taken' : 'skipped') : null;
+        el.style.transition = 'transform .2s'; el.style.transform = '';
+        setTimeout(() => { el.style.transition = ''; el.classList.remove('sw-right', 'sw-left', 'sw-ready'); }, 200);
+        if (go) { haptic(); markDose(key, go); }
+      };
+      el.addEventListener('touchend', end); el.addEventListener('touchcancel', end);
+    }
+  }
+
+  // Botón "+": registro rápido desde cualquier pantalla
+  function quickMenu() {
+    const route = parseHash().route;
+    const im = intakeMap(), now = new Date();
+    const due = dosesForDate(state.meds, today()).filter(x => !im.has(x.key) && at(today(), x.time) <= new Date(now.getTime() + 60 * 60000));
+    const items = [
+      ['vital', 'heart', 'var(--sys)', 'Presión', 'Registrar toma'],
+      ['dose', 'pill', 'var(--primary)', 'Dosis', due.length ? `${due.length} por tomar` : 'Marcar tomada'],
+      ['water', 'droplet', '#0ea5e9', 'Agua', '+250 ml'],
+      ['water-more', 'droplet', '#0284c7', 'Agua', 'Otra cantidad'],
+      ['coffee', 'coffee', 'var(--pulse)', 'Café', '+1 taza'],
+      ['salt', 'alert', 'var(--warn)', 'Comida salada', '+1'],
+      ['appt', 'calendar', 'var(--warn)', 'Cita', 'Agendar'],
+      ['med', 'pill', 'var(--ok)', 'Medicamento', 'Agregar nuevo'],
+      ['lab', 'flask', 'var(--pulse)', 'Análisis', 'Resultados'],
+      ['question', 'chat', 'var(--primary)', 'Pregunta', 'Para el médico']
+    ];
+    const first = { signos: 'vital', medicamentos: 'med', agenda: 'appt', analisis: 'lab', habitos: 'coffee', resumen: 'question' }[route.id];
+    if (first) items.sort((a, b) => (b[0] === first) - (a[0] === first));
+    modal({
+      title: 'Registro rápido', submit: 'Cerrar', cancel: null,
+      body: `<div class="quick-grid">${items.map(([k, ic, color, l, sub]) => `<button type="button" class="quick-item" data-q="${k}">
+          <span class="quick-ic" style="background:color-mix(in srgb, ${color} 15%, transparent);color:${color}">${icon(ic)}</span><b>${l}</b><small>${sub}</small></button>`).join('')}</div>`,
+      onOpen: f => f.addEventListener('click', e => {
+        const b = e.target.closest('[data-q]');
+        if (!b) return;
+        $('#modal').close();
+        const k = b.dataset.q;
+        setTimeout(() => ({
+          vital: () => vitalForm(), dose: () => doseSheet(), water: () => addWater(250), 'water-more': () => actions['water-custom'](),
+          coffee: () => addHabit('coffee', 1), salt: () => addHabit('salt', 1), appt: () => apptForm(null, today()),
+          med: () => medForm(), lab: () => labChooser(), question: () => questionForm()
+        })[k](), 0);
+      }),
+      onSubmit: () => {}
+    });
+  }
+  // Dosis de hoy para marcar desde cualquier pantalla
+  function doseSheet() {
+    const im = intakeMap(), now = new Date();
+    const list = dosesForDate(state.meds, today()).filter(x => !im.has(x.key));
+    const due = list.filter(x => at(today(), x.time) <= new Date(now.getTime() + 60 * 60000));
+    modal({
+      title: 'Marcar dosis', submit: 'Cerrar', cancel: null,
+      body: list.length ? `${due.length > 1 ? `<button type="button" class="btn block" data-all>${icon('check')} Tomar las ${due.length} de ahora</button>` : ''}
+        <div class="list">${list.map(d => `<div class="item"><div class="item-body"><div class="item-title row" style="gap:6px;flex-wrap:nowrap">${SOLID.includes(d.med.form) || (d.med.look && d.med.look.color) ? pillSVG(d.med.look, d.med.form, 18) : ''}${esc(d.med.name)}</div>
+          <div class="item-sub">${d.time}${doseLabel(d.med) ? ' · ' + esc(doseLabel(d.med)) : ''}${at(today(), d.time) < now ? ' · <span style="color:var(--warn)">Pendiente</span>' : ''}</div></div>
+          <button type="button" class="icon-btn" data-k="${d.key}" data-s="skipped" aria-label="Omitir">${icon('skip')}</button>
+          <button type="button" class="btn small" data-k="${d.key}" data-s="taken">${icon('check')} Tomada</button></div>`).join('')}</div>`
+        : `<div class="empty">${icon('check')}<div>No tienes dosis pendientes hoy.</div></div>`,
+      onOpen: f => f.addEventListener('click', e => {
+        const b = e.target.closest('[data-k]'), all = e.target.closest('[data-all]');
+        if (!b && !all) return;
+        $('#modal').close();
+        if (all) markDoses(due.map(d => d.key)); else markDose(b.dataset.k, b.dataset.s);
+      }),
+      onSubmit: () => {}
+    });
+  }
+  function questionForm() {
+    modal({
+      title: 'Pregunta para el médico',
+      body: `<label class="field"><span>¿Qué quieres preguntar en tu próxima consulta?</span><textarea name="q" rows="3" maxlength="200" required placeholder="Ej. ¿Puedo tomar ibuprofeno?"></textarea></label>`,
+      onSubmit: async f => {
+        if (!f.reportValidity()) return false;
+        state.settings.questions = (state.settings.questions || []).concat({ id: uid(), text: f.q.value.trim(), created: today() });
+        await saveSettings(); render(); toast('Pregunta guardada en Resumen', 'check');
+      }
+    });
+  }
+
   // Secciones de Inicio: el orden y cuáles se muestran se guardan en Ajustes (se sincroniza)
   const HOME_WIDGETS = {
+    ahora: { label: 'Ahora (lo que toca en este momento)', icon: 'clock' },
     presion: { label: 'Última presión', icon: 'heart' },
     resumen: { label: 'Resumen (promedios, dosis y próxima cita)', icon: 'trend' },
     agua: { label: 'Agua de hoy', icon: 'droplet' },
@@ -375,7 +602,7 @@
   };
   function homeLayout() {
     const order = (state.settings.homeOrder || []).filter(id => HOME_WIDGETS[id]);
-    for (const id of Object.keys(HOME_WIDGETS)) if (!order.includes(id)) order.push(id); // secciones nuevas al final
+    for (const id of Object.keys(HOME_WIDGETS)) if (!order.includes(id)) id === 'ahora' ? order.unshift(id) : order.push(id); // nuevas al final ("Ahora" arriba)
     const hidden = new Set(state.settings.homeHidden || []);
     return order.map(id => ({ id, on: !hidden.has(id) }));
   }
@@ -419,15 +646,87 @@
     if (!el) return;
     const bp = vitals.filter(v => v.sys && v.dia);
     const pul = vitals.filter(v => v.pulse);
+    const series = [
+      { name: 'Sistólica', color: 'var(--sys)', points: bp.map(v => ({ x: vitalTime(v), y: v.sys, id: v.id })) },
+      { name: 'Diastólica', color: 'var(--dia)', points: bp.map(v => ({ x: vitalTime(v), y: v.dia, id: v.id })) },
+      { name: 'Pulso', color: 'var(--pulse)', dashed: true, points: pul.map(v => ({ x: vitalTime(v), y: v.pulse, id: v.id })) }
+    ];
+    const g = state.settings.bpGoal, all = bp.map(vitalTime);
+    if (g && all.length) {
+      const x0 = new Date(Math.min(...all)), x1 = new Date(Math.max(...all));
+      series.push({ name: `Meta ${g.sys}/${g.dia}`, color: 'var(--ok)', dashed: true, noDots: true, points: [{ x: x0, y: g.sys }, { x: x1, y: g.sys }] });
+      series.push({ name: '', color: 'var(--ok)', dashed: true, noDots: true, noLegend: true, points: [{ x: x0, y: g.dia }, { x: x1, y: g.dia }] });
+    }
     el.innerHTML = Charts.lineChart({
       width: el.clientWidth, height, label: 'Presión arterial y pulso',
-      bands: bp.length ? [{ from: 90, to: 120, color: 'var(--bp-normal)' }] : [],
-      series: [
-        { name: 'Sistólica', color: 'var(--sys)', points: bp.map(v => ({ x: vitalTime(v), y: v.sys })) },
-        { name: 'Diastólica', color: 'var(--dia)', points: bp.map(v => ({ x: vitalTime(v), y: v.dia })) },
-        { name: 'Pulso', color: 'var(--pulse)', dashed: true, points: pul.map(v => ({ x: vitalTime(v), y: v.pulse })) }
-      ]
+      bands: bp.length ? [{ from: 90, to: 120, color: 'var(--bp-normal)' }] : [], series
     });
+    el.onclick = e => {
+      const c = e.target.closest('[data-id]');
+      if (!c) return;
+      const v = state.vitals.find(x => x.id === c.dataset.id);
+      if (v) vitalPopover(v, e.clientX, e.clientY);
+    };
+  }
+  // Detalle de una toma al tocar la gráfica o el calendario
+  function vitalPopover(v, x, y, list) {
+    $$('.pop').forEach(p => p.remove());
+    const items = list || [v];
+    const pop = document.createElement('div');
+    pop.className = 'pop';
+    pop.innerHTML = `<div class="pop-head"><b>${cap(fmtDate(items[0].date, { weekday: 'long', day: 'numeric', month: 'short' }))}</b><button class="icon-btn" data-pop-close aria-label="Cerrar">${icon('x')}</button></div>
+      ${items.map(it => { const c = bpCategory(it.sys, it.dia); return `<div class="pop-row"><div><span class="bp-val">${it.sys ? it.sys + '/' + it.dia : '—'}</span> <span class="small muted">${it.time}${it.pulse ? ' · ' + it.pulse + ' lpm' : ''}</span>
+        <div>${catChip(c)}${(it.tags || []).map(t => ` <span class="chip tag">${tagLabel(t)}</span>`).join('')}</div>${it.notes ? `<div class="small muted">${esc(it.notes)}</div>` : ''}</div>
+        <button class="btn ghost small" data-pop-edit="${it.id}">${icon('edit')}</button></div>`; }).join('')}`;
+    document.body.appendChild(pop);
+    const r = pop.getBoundingClientRect();
+    pop.style.left = Math.max(8, Math.min(innerWidth - r.width - 8, x - r.width / 2)) + 'px';
+    pop.style.top = (y + r.height + 16 > innerHeight ? Math.max(8, y - r.height - 12) : y + 12) + 'px';
+    pop.addEventListener('click', e => {
+      if (e.target.closest('[data-pop-close]')) pop.remove();
+      const ed = e.target.closest('[data-pop-edit]');
+      if (ed) { pop.remove(); vitalForm(state.vitals.find(z => z.id === ed.dataset.popEdit)); }
+    });
+    setTimeout(() => document.addEventListener('click', function off(e) { if (!pop.contains(e.target)) { pop.remove(); document.removeEventListener('click', off); } }), 0);
+  }
+  // Porcentaje de tomas dentro de la meta personal
+  function goalStat(list) {
+    const g = state.settings.bpGoal;
+    const bp = list.filter(v => v.sys && v.dia);
+    if (!g || !bp.length) return '';
+    const ok = bp.filter(v => v.sys < g.sys && v.dia < g.dia).length, pct = Math.round(ok * 100 / bp.length);
+    return `<div class="goal-stat"><div class="progress" style="flex:1"><div style="width:${pct}%;background:var(--ok)"></div></div><span class="small"><b>${pct}%</b> de tus tomas por debajo de ${g.sys}/${g.dia}</span></div>`;
+  }
+  function bpGoalForm() {
+    const g = state.settings.bpGoal || {};
+    modal({
+      title: 'Mi meta de presión',
+      body: `<p class="small muted" style="margin-top:0">La que te indique tu médico. Para muchas personas con hipertensión es menos de 130/80.</p>
+        <div class="fields"><label class="field"><span>Sistólica menor a</span><input type="number" name="sys" inputmode="numeric" min="90" max="200" value="${g.sys || 130}" required></label>
+        <label class="field"><span>Diastólica menor a</span><input type="number" name="dia" inputmode="numeric" min="50" max="120" value="${g.dia || 80}" required></label></div>
+        ${state.settings.bpGoal ? '<button type="button" class="btn ghost small" data-clear>Quitar meta</button>' : ''}`,
+      onOpen: f => { const c = $('[data-clear]', f); if (c) c.onclick = async () => { delete state.settings.bpGoal; await saveSettings(); $('#modal').close(); render(); }; },
+      onSubmit: async f => {
+        if (!f.reportValidity()) return false;
+        state.settings.bpGoal = { sys: +f.sys.value, dia: +f.dia.value };
+        await saveSettings(); render(); toast('Meta guardada', 'check');
+      }
+    });
+  }
+  // Calendario de las últimas 5 semanas: color de la categoría promedio de cada día
+  function calendarCard() {
+    const end = today(), d0 = at(addDays(end, -34));
+    const start = addDays(dateKey(d0), -((d0.getDay() + 6) % 7)); // desde lunes
+    const cells = [];
+    for (let ds = start; ds <= end; ds = addDays(ds, 1)) {
+      const day = state.vitals.filter(v => v.date === ds && v.sys && v.dia);
+      const c = day.length ? bpCategory(avg(day.map(v => v.sys)), avg(day.map(v => v.dia))) : null;
+      cells.push(`<button type="button" class="cal-day ${c ? 'has' : ''} ${ds === end ? 'today' : ''}" ${day.length ? `data-cal="${ds}"` : 'disabled'} style="${c ? `background:color-mix(in srgb, ${c.color} 75%, transparent);` : ''}" title="${esc(fmtDate(ds))}${c ? ': ' + c.label : ''}">${at(ds).getDate()}</button>`);
+    }
+    const legend = [['var(--bp-normal)', 'Normal'], ['var(--bp-elev)', 'Elevada'], ['var(--bp-h1)', 'HTA 1'], ['var(--bp-h2)', 'HTA 2'], ['var(--bp-low)', 'Baja']];
+    return `<div class="card"><div class="card-head"><h3>${icon('calendar')} Calendario</h3><span class="small muted">5 semanas</span></div>
+      <div class="cal-heat">${['L', 'M', 'X', 'J', 'V', 'S', 'D'].map(x => `<span class="cal-dow">${x}</span>`).join('')}${cells.join('')}</div>
+      <div class="legend" style="margin-top:8px">${legend.map(([c, l]) => `<span><i style="background:${c}"></i>${l}</span>`).join('')}</div></div>`;
   }
 
   // ======================================================
@@ -484,7 +783,9 @@
     ml = Math.round(+ml);
     if (!(ml > 0 && ml <= 5000)) return;
     const rec = { id: uid(), date: today(), at: today() + 'T' + timeKey(new Date()), ml };
+    const before = waterSum(today());
     await DB.put('water', rec);
+    if (before < waterGoal().min && before + ml >= waterGoal().min) setTimeout(() => { toast('🎉 ¡Cumpliste tu meta de agua de hoy!'); haptic([15, 60, 15]); }, 900);
     await load(); render();
     toast(`+${ml} ml · llevas ${liters(waterSum(today()))}`, 'droplet', {
       label: 'Deshacer', fn: async () => { await DB.del('water', rec.id); await load(); render(); }
@@ -801,6 +1102,50 @@
   }
 
   // ======================================================
+  //  GUÍA DE BIENVENIDA (primer uso)
+  // ======================================================
+  function onboarding(step) {
+    const steps = [
+      { title: 'Bienvenido a Latidia', body: `<div class="ob-hero">${icon('heart')}</div>
+          <p>Tu presión, tus medicamentos y tus citas en un solo lugar.</p>
+          <ul class="ob-list"><li>${icon('heart')} Registra tu presión y ve cómo va</li><li>${icon('pill')} Recordatorios de cada dosis</li>
+          <li>${icon('calendar')} Citas y análisis con aviso</li><li>${icon('report')} Reportes en PDF para tu médico</li></ul>` },
+      { title: 'Recordatorios', body: `<div class="ob-hero">${icon('bell')}</div>
+          <p>Latidia te avisa a la hora de cada dosis, para medir tu presión y antes de tus citas, aunque la app esté cerrada.</p>
+          ${isIOS() && !isStandalone() ? '<p class="small muted">En iPhone primero agrégala a la pantalla de inicio: botón <b>Compartir</b> → <b>Agregar a pantalla de inicio</b>.</p>' : ''}
+          ${typeof Notification !== 'undefined' && Notification.permission !== 'granted' ? `<button type="button" class="btn block" data-ob-notif>${icon('bell')} Activar notificaciones</button>` : `<div class="now-ok">${icon('check')}<b>Notificaciones activadas</b></div>`}` },
+      { title: '¿Por dónde empiezas?', body: `<div class="quick-grid">
+          <button type="button" class="quick-item" data-ob="med"><span class="quick-ic" style="background:var(--primary-soft);color:var(--primary)">${icon('pill')}</span><b>Agregar un medicamento</b><small>Con la biblioteca</small></button>
+          <button type="button" class="quick-item" data-ob="vital"><span class="quick-ic" style="background:color-mix(in srgb, var(--sys) 15%, transparent);color:var(--sys)">${icon('heart')}</span><b>Registrar mi presión</b><small>2 o 3 lecturas</small></button>
+          <button type="button" class="quick-item" data-ob="data"><span class="quick-ic" style="background:var(--surface-2)">${icon('user')}</span><b>Mis datos</b><small>Para los reportes</small></button>
+          <button type="button" class="quick-item" data-ob="done"><span class="quick-ic" style="background:color-mix(in srgb, var(--ok) 15%, transparent);color:var(--ok)">${icon('check')}</span><b>Explorar</b><small>Lo haré después</small></button></div>
+          <p class="small muted" style="margin:0">Tip: el botón <b>+</b> abre el registro rápido desde cualquier pantalla.</p>` }
+    ];
+    const st = steps[step];
+    const finish = async () => { if (!state.settings.onboarded) { state.settings.onboarded = true; await saveSettings(); } };
+    modal({
+      title: st.title, submit: step < steps.length - 1 ? 'Siguiente' : 'Listo', cancel: step ? 'Atrás' : 'Saltar',
+      body: `<div class="ob">${st.body}<div class="ob-dots">${steps.map((_, i) => `<i class="${i === step ? 'on' : ''}"></i>`).join('')}</div></div>`,
+      onOpen: f => {
+        const cancel = $('.modal-foot [data-close]', f);
+        if (cancel && step) cancel.addEventListener('click', e => { e.preventDefault(); e.stopImmediatePropagation(); $('#modal').close(); setTimeout(() => onboarding(step - 1), 0); }, true);
+        else if (cancel) cancel.addEventListener('click', finish);
+        f.addEventListener('click', async e => {
+          if (e.target.closest('[data-ob-notif]')) { await enableNotifications(); $('#modal').close(); setTimeout(() => onboarding(step), 0); }
+          const b = e.target.closest('[data-ob]');
+          if (!b) return;
+          await finish(); $('#modal').close();
+          setTimeout(() => ({ med: () => medForm(), vital: () => vitalForm(), data: () => fichaForm(), done: () => {} })[b.dataset.ob](), 0);
+        });
+      },
+      onSubmit: async () => {
+        if (step < steps.length - 1) { setTimeout(() => onboarding(step + 1), 0); return; }
+        await finish();
+      }
+    });
+  }
+
+  // ======================================================
   //  SIGNOS VITALES
   // ======================================================
   function renderVitals() {
@@ -812,17 +1157,30 @@
     <div class="stack-v">
       <div class="row between"><div class="seg">${seg}</div>
         <button class="btn hide-mobile" data-act="new-vital">${icon('plus')} Nuevo registro</button></div>
-      <div class="card"><div class="card-head"><h3>${icon('activity')} Presión y pulso</h3><span class="small muted">Franja verde: sistólica normal (90–120)</span></div><div data-chart="vitals"></div></div>
+      <div class="card"><div class="card-head"><h3>${icon('activity')} Presión y pulso</h3>
+          <button class="btn ghost small" data-act="bp-goal">${icon('settings')} ${state.settings.bpGoal ? `Meta ${state.settings.bpGoal.sys}/${state.settings.bpGoal.dia}` : 'Mi meta'}</button></div>
+        ${goalStat(list)}
+        <div data-chart="vitals"></div>
+        <div class="small muted">Toca un punto para ver el detalle. Franja verde: sistólica normal (90–120)${state.settings.bpGoal ? '; líneas punteadas: tu meta' : ''}.</div></div>
+      ${calendarCard()}
       <div class="grid cols-2">${dayPartCard(list)}${triggersCard(list)}</div>
       <div class="card">
         <div class="card-head"><h3>${icon('list')} Registros <span class="chip">${list.length}</span></h3></div>
-        ${list.length ? `<div class="list">${list.map(vitalItem).join('')}</div>` : emptyState('heart', 'No hay registros en este periodo')}
+        ${list.length ? `<div class="list">${list.map(vitalItem).join('')}</div>` : emptyState('heart', 'No hay registros en este periodo', `<button class="btn ghost small" style="margin-top:10px" data-act="new-vital">${icon('plus')} Registrar toma</button>`)}
       </div>
     </div>`;
   }
   routeById('signos').after = () => {
     const r = state.vitalsRange;
     drawBPChart($('[data-chart="vitals"]'), r ? state.vitals.filter(v => v.date > addDays(today(), -r)) : state.vitals, 260);
+    const cal = $('.cal-heat');
+    if (cal) cal.onclick = e => {
+      const b = e.target.closest('[data-cal]');
+      if (!b) return;
+      const day = state.vitals.filter(v => v.date === b.dataset.cal).sort((a, c) => a.time.localeCompare(c.time));
+      const rc = b.getBoundingClientRect();
+      vitalPopover(day[0], rc.left + rc.width / 2, rc.bottom, day);
+    };
   };
 
   // Mañana / tarde / noche: ayuda al médico a decidir a qué hora conviene cada medicamento
@@ -965,6 +1323,20 @@
           if (rm) { rm.closest('.reading-row').remove(); renumber(); upd(); }
         });
         f.addEventListener('input', upd); upd();
+        // Al completar un valor pasa solo al siguiente (como en un cajero)
+        const done = (k, t) => {
+          if (!/^\d+$/.test(t)) return false;
+          if (k === 'sys') return t.length === 3 || (t.length === 2 && +t[0] >= 3);
+          if (k === 'dia') return t.length === 3 || (t.length === 2 && +t[0] >= 3);
+          return false;
+        };
+        f.addEventListener('input', e => {
+          const i = e.target, k = i.name || i.dataset.r;
+          if (!done(k, i.value)) return;
+          const row = i.closest('.reading-row');
+          const next = row ? $(`[data-r="${k === 'sys' ? 'dia' : 'pulse'}"]`, row) : f[k === 'sys' ? 'dia' : 'pulse'];
+          if (next && !next.value) next.focus();
+        });
         if (!v.id) f.sys.focus();
       },
       onSubmit: async f => {
@@ -1049,6 +1421,7 @@
 
   // Registrar una dosis; aviso con "Deshacer" por si fue un toque accidental
   async function markDose(key, status) {
+    const before = medsDayOk(today());
     await MS.markTaken(key, status);
     await load(); render();
     const [medId, , t] = key.split('|');
@@ -1057,6 +1430,7 @@
       label: 'Deshacer',
       fn: async () => { await DB.del('intakes', key); await load(); render(); }
     });
+    if (status === 'taken') celebrateDoses(before);
   }
 
   // Editar una toma ya registrada (estado, hora real, nota o quitar registro)
@@ -2318,6 +2692,9 @@
         <div class="card">
           <div class="card-head"><h3>${icon('sun')} Apariencia</h3></div>
           <div class="seg">${[['auto', 'Automático'], ['light', 'Claro'], ['dark', 'Oscuro']].map(([v, l]) => `<button data-act="theme" data-v="${v}" class="${theme === v ? 'active' : ''}">${l}</button>`).join('')}</div>
+          <div class="small muted" style="margin:14px 0 6px">Tamaño del texto</div>
+          <div class="seg">${[['normal', 'Normal'], ['grande', 'Grande'], ['muy', 'Muy grande']].map(([v, l]) => `<button data-act="text-size" data-v="${v}" class="${(s.textSize || 'normal') === v ? 'active' : ''}">${l}</button>`).join('')}</div>
+          <button class="btn ghost small" data-act="onboarding" style="margin-top:14px">${icon('info')} Ver la guía de bienvenida</button>
         </div>
         <div class="card">
           <div class="card-head"><h3>${icon('file')} Datos y respaldo</h3></div>
@@ -2380,7 +2757,11 @@
   //  ACCIONES (delegación de eventos)
   // ======================================================
   const actions = {
-    fab: () => parseHash().route.fab(),
+    fab: () => quickMenu(),
+    'dose-all': el => markDoses(el.dataset.keys.split(',')),
+    'text-size': async el => { state.settings.textSize = el.dataset.v; applyTextSize(); await saveSettings(); render(); },
+    onboarding: () => onboarding(0),
+    'bp-goal': () => bpGoalForm(),
     'new-vital': () => vitalForm(),
     'edit-vital': el => vitalForm(state.vitals.find(v => v.id === el.dataset.id)),
     'del-vital': async el => {
@@ -2921,9 +3302,16 @@
   //  ARRANQUE
   // ======================================================
   let started = false, pendingRender = false;
+  // La guía aparece solo la primera vez y sin datos; a quien ya usaba la app se le marca como vista
+  async function maybeOnboard() {
+    if (state.settings.onboarded) return;
+    if (state.vitals.length || state.meds.length || state.appts.length) { state.settings.onboarded = true; await saveSettings(); return; }
+    if (!$('#modal').open) onboarding(0);
+  }
   function refreshSoon() {
     if (!started) return;
     load().then(() => {
+      if (state.loading && (state.vitals.length || state.meds.length || state.appts.length)) { state.loading = false; maybeOnboard(); }
       if ($('#modal').open && $('#modalForm').dataset.panel !== 'notifs') pendingRender = true; else render();
     });
   }
@@ -2937,7 +3325,13 @@
     const nm = pendingName || (Cloud.user && Cloud.user.displayName);
     if (nm && !state.settings.name) { state.settings.name = nm; await saveSettings(); }
     pendingName = '';
+    const empty = !state.vitals.length && !state.meds.length && !state.appts.length;
+    if (Cloud.user && empty && !state.settings.onboarded) {
+      state.loading = true; // datos de la nube en camino
+      setTimeout(() => { if (state.loading) { state.loading = false; render(); maybeOnboard(); } }, 5000);
+    }
     render();
+    if (!state.loading) maybeOnboard();
     checkReminders();
     if (!started) {
       started = true;

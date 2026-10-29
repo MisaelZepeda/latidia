@@ -50,13 +50,15 @@
       if (!pts.length) continue;
       const d = pts.map((p, i) => `${i ? 'L' : 'M'}${X(p.x).toFixed(1)},${Y(p.y).toFixed(1)}`).join('');
       svg += `<path d="${d}" fill="none" stroke="${s.color}" stroke-width="2.25" stroke-linejoin="round" stroke-linecap="round" ${s.dashed ? 'stroke-dasharray="5 4"' : ''}/>`;
+      if (s.noDots) continue;
       const r = pts.length > 60 ? 2 : 3.5;
       for (const p of pts) {
+        if (p.id) svg += `<circle class="hit" data-id="${esc(p.id)}" cx="${X(p.x).toFixed(1)}" cy="${Y(p.y).toFixed(1)}" r="11" fill="transparent"/>`;
         svg += `<circle cx="${X(p.x).toFixed(1)}" cy="${Y(p.y).toFixed(1)}" r="${r}" fill="${s.color}" stroke="var(--surface)" stroke-width="1.5"><title>${esc(s.name)}: ${p.y} · ${new Date(p.x).toLocaleString('es', { dateStyle: 'medium', timeStyle: 'short' })}</title></circle>`;
       }
     }
     svg += '</svg>';
-    const legend = opts.series.map(s => `<span><i style="background:${s.color}"></i>${esc(s.name)}</span>`).join('');
+    const legend = opts.series.filter(s => !s.noLegend).map(s => `<span><i style="background:${s.color}"></i>${esc(s.name)}</span>`).join('');
     return svg + `<div class="legend">${legend}</div>`;
   }
 
