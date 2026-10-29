@@ -1,0 +1,166 @@
+/* Biblioteca de medicamentos comunes en México (referencia rápida para capturar; confirma siempre con tu receta).
+   Formato: [nombre, grupo, presentaciones]; presentaciones = "forma concentraciones unidad; …"
+   (las concentraciones van separadas por coma; las combinaciones usan "/", p. ej. 80/12.5) */
+(function (g) {
+  const RAW = [
+    // Presión arterial y corazón
+    ['Losartán', 'Presión arterial y corazón', 'tableta 50,100 mg'],
+    ['Losartán/hidroclorotiazida', 'Presión arterial y corazón', 'tableta 50/12.5,100/25 mg'],
+    ['Telmisartán', 'Presión arterial y corazón', 'tableta 40,80 mg'],
+    ['Telmisartán/hidroclorotiazida', 'Presión arterial y corazón', 'tableta 40/12.5,80/12.5,80/25 mg'],
+    ['Telmisartán/amlodipino', 'Presión arterial y corazón', 'tableta 40/5,80/5,80/10 mg'],
+    ['Valsartán', 'Presión arterial y corazón', 'tableta 80,160,320 mg'],
+    ['Valsartán/amlodipino', 'Presión arterial y corazón', 'tableta 160/5,160/10 mg'],
+    ['Candesartán', 'Presión arterial y corazón', 'tableta 8,16,32 mg'],
+    ['Irbesartán', 'Presión arterial y corazón', 'tableta 150,300 mg'],
+    ['Olmesartán', 'Presión arterial y corazón', 'tableta 20,40 mg'],
+    ['Enalapril', 'Presión arterial y corazón', 'tableta 5,10,20 mg'],
+    ['Captopril', 'Presión arterial y corazón', 'tableta 25,50 mg'],
+    ['Lisinopril', 'Presión arterial y corazón', 'tableta 10,20 mg'],
+    ['Amlodipino', 'Presión arterial y corazón', 'tableta 5,10 mg'],
+    ['Nifedipino', 'Presión arterial y corazón', 'capsula 10 mg; tableta 30,60 mg'],
+    ['Felodipino', 'Presión arterial y corazón', 'tableta 5,10 mg'],
+    ['Verapamilo', 'Presión arterial y corazón', 'tableta 80,180,240 mg'],
+    ['Metoprolol', 'Presión arterial y corazón', 'tableta 50,100 mg'],
+    ['Bisoprolol', 'Presión arterial y corazón', 'tableta 2.5,5,10 mg'],
+    ['Carvedilol', 'Presión arterial y corazón', 'tableta 6.25,12.5,25 mg'],
+    ['Atenolol', 'Presión arterial y corazón', 'tableta 50,100 mg'],
+    ['Propranolol', 'Presión arterial y corazón', 'tableta 10,40 mg'],
+    ['Nebivolol', 'Presión arterial y corazón', 'tableta 5 mg'],
+    ['Hidroclorotiazida', 'Presión arterial y corazón', 'tableta 25 mg'],
+    ['Clortalidona', 'Presión arterial y corazón', 'tableta 25,50 mg'],
+    ['Indapamida', 'Presión arterial y corazón', 'tableta 1.5,2.5 mg'],
+    ['Furosemida', 'Presión arterial y corazón', 'tableta 40 mg; inyeccion 10 mg/ml'],
+    ['Espironolactona', 'Presión arterial y corazón', 'tableta 25,50,100 mg'],
+    ['Prazosina', 'Presión arterial y corazón', 'capsula 1,2 mg'],
+    ['Doxazosina', 'Presión arterial y corazón', 'tableta 2,4 mg'],
+    ['Hidralazina', 'Presión arterial y corazón', 'tableta 10,50 mg'],
+    ['Metildopa', 'Presión arterial y corazón', 'tableta 250,500 mg'],
+    ['Isosorbida, dinitrato de', 'Presión arterial y corazón', 'tableta 5,10 mg'],
+    ['Ácido acetilsalicílico (aspirina)', 'Presión arterial y corazón', 'tableta 100,300,500 mg'],
+    ['Clopidogrel', 'Presión arterial y corazón', 'tableta 75 mg'],
+    ['Warfarina', 'Presión arterial y corazón', 'tableta 5 mg'],
+    ['Acenocumarol', 'Presión arterial y corazón', 'tableta 4 mg'],
+    ['Rivaroxabán', 'Presión arterial y corazón', 'tableta 10,15,20 mg'],
+    ['Apixabán', 'Presión arterial y corazón', 'tableta 2.5,5 mg'],
+    ['Digoxina', 'Presión arterial y corazón', 'tableta 0.25 mg'],
+    ['Amiodarona', 'Presión arterial y corazón', 'tableta 200 mg'],
+    // Colesterol y triglicéridos
+    ['Atorvastatina', 'Colesterol y triglicéridos', 'tableta 10,20,40,80 mg'],
+    ['Rosuvastatina', 'Colesterol y triglicéridos', 'tableta 10,20,40 mg'],
+    ['Simvastatina', 'Colesterol y triglicéridos', 'tableta 10,20,40 mg'],
+    ['Pravastatina', 'Colesterol y triglicéridos', 'tableta 10,20,40 mg'],
+    ['Ezetimiba', 'Colesterol y triglicéridos', 'tableta 10 mg'],
+    ['Bezafibrato', 'Colesterol y triglicéridos', 'tableta 200 mg'],
+    ['Fenofibrato', 'Colesterol y triglicéridos', 'capsula 160,200 mg'],
+    ['Omega 3', 'Colesterol y triglicéridos', 'capsula 1000 mg'],
+    // Diabetes
+    ['Metformina', 'Diabetes', 'tableta 500,850,1000 mg'],
+    ['Glibenclamida', 'Diabetes', 'tableta 5 mg'],
+    ['Metformina/glibenclamida', 'Diabetes', 'tableta 500/2.5,500/5 mg'],
+    ['Glimepirida', 'Diabetes', 'tableta 2,4 mg'],
+    ['Sitagliptina', 'Diabetes', 'tableta 50,100 mg'],
+    ['Sitagliptina/metformina', 'Diabetes', 'tableta 50/850,50/1000 mg'],
+    ['Linagliptina', 'Diabetes', 'tableta 5 mg'],
+    ['Dapagliflozina', 'Diabetes', 'tableta 10 mg'],
+    ['Empagliflozina', 'Diabetes', 'tableta 10,25 mg'],
+    ['Pioglitazona', 'Diabetes', 'tableta 15,30 mg'],
+    ['Insulina NPH (intermedia)', 'Diabetes', 'inyeccion 100 UI/ml'],
+    ['Insulina glargina', 'Diabetes', 'inyeccion 100 UI/ml'],
+    ['Insulina rápida (regular)', 'Diabetes', 'inyeccion 100 UI/ml'],
+    ['Insulina lispro', 'Diabetes', 'inyeccion 100 UI/ml'],
+    // Dolor, fiebre e inflamación
+    ['Paracetamol', 'Dolor, fiebre e inflamación', 'tableta 500,750 mg; suspension 160 mg/5 ml; gotas 100 mg/ml'],
+    ['Ibuprofeno', 'Dolor, fiebre e inflamación', 'tableta 200,400,600,800 mg; suspension 100 mg/5 ml'],
+    ['Naproxeno', 'Dolor, fiebre e inflamación', 'tableta 250,500 mg; suspension 125 mg/5 ml'],
+    ['Diclofenaco', 'Dolor, fiebre e inflamación', 'tableta 50,100 mg; inyeccion 25 mg/ml; crema 1 %'],
+    ['Ketorolaco', 'Dolor, fiebre e inflamación', 'tableta 10 mg; inyeccion 30 mg/ml'],
+    ['Metamizol', 'Dolor, fiebre e inflamación', 'tableta 500 mg; inyeccion 500 mg/ml'],
+    ['Celecoxib', 'Dolor, fiebre e inflamación', 'capsula 100,200 mg'],
+    ['Meloxicam', 'Dolor, fiebre e inflamación', 'tableta 7.5,15 mg'],
+    ['Tramadol', 'Dolor, fiebre e inflamación', 'capsula 50 mg; gotas 100 mg/ml'],
+    ['Tramadol/paracetamol', 'Dolor, fiebre e inflamación', 'tableta 37.5/325 mg'],
+    ['Prednisona', 'Dolor, fiebre e inflamación', 'tableta 5,20,50 mg'],
+    ['Dexametasona', 'Dolor, fiebre e inflamación', 'tableta 0.5 mg; inyeccion 4 mg/ml'],
+    ['Colchicina', 'Dolor, fiebre e inflamación', 'tableta 1 mg'],
+    ['Alopurinol', 'Dolor, fiebre e inflamación', 'tableta 100,300 mg'],
+    // Estómago
+    ['Omeprazol', 'Estómago', 'capsula 20,40 mg'],
+    ['Pantoprazol', 'Estómago', 'tableta 20,40 mg'],
+    ['Esomeprazol', 'Estómago', 'tableta 20,40 mg'],
+    ['Butilhioscina', 'Estómago', 'tableta 10 mg'],
+    ['Metoclopramida', 'Estómago', 'tableta 10 mg; inyeccion 5 mg/ml'],
+    ['Loperamida', 'Estómago', 'tableta 2 mg'],
+    ['Hidróxido de aluminio y magnesio', 'Estómago', 'suspension 200/200 mg/5 ml'],
+    ['Senósidos', 'Estómago', 'tableta 8.6 mg'],
+    ['Electrolitos orales', 'Estómago', 'sobre'],
+    // Antibióticos e infecciones
+    ['Amoxicilina', 'Antibióticos e infecciones', 'capsula 500 mg; suspension 250 mg/5 ml'],
+    ['Amoxicilina/ácido clavulánico', 'Antibióticos e infecciones', 'tableta 500/125,875/125 mg; suspension 400/57 mg/5 ml'],
+    ['Ampicilina', 'Antibióticos e infecciones', 'capsula 500 mg'],
+    ['Cefalexina', 'Antibióticos e infecciones', 'capsula 500 mg; suspension 250 mg/5 ml'],
+    ['Ceftriaxona', 'Antibióticos e infecciones', 'inyeccion 1 g'],
+    ['Azitromicina', 'Antibióticos e infecciones', 'tableta 500 mg; suspension 200 mg/5 ml'],
+    ['Claritromicina', 'Antibióticos e infecciones', 'tableta 250,500 mg'],
+    ['Ciprofloxacino', 'Antibióticos e infecciones', 'tableta 250,500 mg'],
+    ['Levofloxacino', 'Antibióticos e infecciones', 'tableta 500,750 mg'],
+    ['Trimetoprima/sulfametoxazol', 'Antibióticos e infecciones', 'tableta 80/400,160/800 mg; suspension 40/200 mg/5 ml'],
+    ['Nitrofurantoína', 'Antibióticos e infecciones', 'capsula 100 mg'],
+    ['Metronidazol', 'Antibióticos e infecciones', 'tableta 500 mg; ovulo 500 mg'],
+    ['Fluconazol', 'Antibióticos e infecciones', 'capsula 150 mg'],
+    ['Albendazol', 'Antibióticos e infecciones', 'tableta 200,400 mg; suspension 400 mg/20 ml'],
+    // Alergia y respiratorio
+    ['Loratadina', 'Alergia y respiratorio', 'tableta 10 mg; jarabe 5 mg/5 ml'],
+    ['Cetirizina', 'Alergia y respiratorio', 'tableta 10 mg'],
+    ['Desloratadina', 'Alergia y respiratorio', 'tableta 5 mg'],
+    ['Clorfenamina', 'Alergia y respiratorio', 'tableta 4 mg'],
+    ['Montelukast', 'Alergia y respiratorio', 'tableta 10 mg'],
+    ['Salbutamol', 'Alergia y respiratorio', 'inhalador 100 mcg'],
+    ['Budesonida', 'Alergia y respiratorio', 'inhalador 200 mcg'],
+    ['Beclometasona', 'Alergia y respiratorio', 'inhalador 50,250 mcg'],
+    ['Ambroxol', 'Alergia y respiratorio', 'jarabe 15 mg/5 ml'],
+    ['Dextrometorfano', 'Alergia y respiratorio', 'jarabe 15 mg/5 ml'],
+    // Tiroides, hormonas y próstata
+    ['Levotiroxina', 'Tiroides, hormonas y próstata', 'tableta 25,50,75,100,125 mcg'],
+    ['Tiamazol', 'Tiroides, hormonas y próstata', 'tableta 5 mg'],
+    ['Tamsulosina', 'Tiroides, hormonas y próstata', 'capsula 0.4 mg'],
+    ['Finasterida', 'Tiroides, hormonas y próstata', 'tableta 5 mg'],
+    // Sistema nervioso y sueño
+    ['Sertralina', 'Sistema nervioso y sueño', 'tableta 50 mg'],
+    ['Fluoxetina', 'Sistema nervioso y sueño', 'capsula 20 mg'],
+    ['Escitalopram', 'Sistema nervioso y sueño', 'tableta 10,20 mg'],
+    ['Paroxetina', 'Sistema nervioso y sueño', 'tableta 20 mg'],
+    ['Amitriptilina', 'Sistema nervioso y sueño', 'tableta 25 mg'],
+    ['Clonazepam', 'Sistema nervioso y sueño', 'tableta 0.5,2 mg; gotas 2.5 mg/ml'],
+    ['Alprazolam', 'Sistema nervioso y sueño', 'tableta 0.25,0.5 mg'],
+    ['Pregabalina', 'Sistema nervioso y sueño', 'capsula 75,150 mg'],
+    ['Gabapentina', 'Sistema nervioso y sueño', 'capsula 300 mg'],
+    ['Carbamazepina', 'Sistema nervioso y sueño', 'tableta 200 mg'],
+    ['Ácido valproico', 'Sistema nervioso y sueño', 'capsula 250 mg'],
+    ['Levetiracetam', 'Sistema nervioso y sueño', 'tableta 500,1000 mg'],
+    ['Melatonina', 'Sistema nervioso y sueño', 'tableta 3,5 mg'],
+    // Vitaminas y suplementos
+    ['Ácido fólico', 'Vitaminas y suplementos', 'tableta 0.4,5 mg'],
+    ['Sulfato ferroso', 'Vitaminas y suplementos', 'tableta 200 mg'],
+    ['Complejo B', 'Vitaminas y suplementos', 'tableta; inyeccion'],
+    ['Vitamina D3 (colecalciferol)', 'Vitaminas y suplementos', 'capsula 1000,2000,4000 UI; gotas 400 UI'],
+    ['Calcio + vitamina D', 'Vitaminas y suplementos', 'tableta 600 mg'],
+    ['Magnesio', 'Vitaminas y suplementos', 'tableta 250,400 mg'],
+    ['Potasio, cloruro de', 'Vitaminas y suplementos', 'tableta 600 mg; solucion 2 mEq/ml'],
+    ['Vitamina C', 'Vitaminas y suplementos', 'tableta 500,1000 mg']
+  ];
+
+  // "tableta 50/12.5,100/25 mg" → [{form, strength, unit}]
+  function parsePres(spec) {
+    const out = [];
+    for (const part of spec.split(';').map(x => x.trim()).filter(Boolean)) {
+      const [form, list, ...rest] = part.split(/\s+/);
+      const unit = rest.join(' ');
+      if (!list) { out.push({ form, strength: '', unit: '' }); continue; }
+      for (const st of list.split(',')) out.push({ form, strength: /^\d+(\.\d+)?$/.test(st) ? +st : st, unit });
+    }
+    return out;
+  }
+
+  g.MED_LIBRARY = RAW.map(([name, group, spec]) => ({ name, group, pres: parsePres(spec) }));
+})(window);

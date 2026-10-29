@@ -30,7 +30,52 @@
     ovulo: { label: 'Óvulo', u1: 'óvulo', u2: 'óvulos' },
     otro: { label: 'Otro', u1: 'dosis', u2: 'dosis' }
   };
-  const STRENGTH_UNITS = ['mg', 'g', 'mcg', 'ml', 'UI', 'mg/ml', 'mg/5 ml', '%'];
+  const STRENGTH_UNITS = ['mg', 'g', 'mcg', 'ml', 'UI', 'mg/ml', 'mg/5 ml', 'UI/ml', 'mEq/ml', '%'];
+  const SOLID = ['tableta', 'capsula', 'pastilla', 'gragea'];
+  const PILL_SHAPES = { redonda: 'Redonda', ovalada: 'Ovalada', oblonga: 'Alargada', triangular: 'Triangular', cuadrada: 'Cuadrada', rombo: 'Rombo' };
+  const PILL_COLORS = [['#ffffff', 'Blanco'], ['#f3e9d2', 'Crema'], ['#fde047', 'Amarillo'], ['#fb923c', 'Naranja'], ['#f9a8d4', 'Rosa'], ['#ef4444', 'Rojo'],
+    ['#a78bfa', 'Morado'], ['#93c5fd', 'Azul claro'], ['#2563eb', 'Azul'], ['#4ade80', 'Verde'], ['#a16207', 'Café'], ['#9ca3af', 'Gris'], ['#1f2937', 'Negro']];
+  const colorName = c => (PILL_COLORS.find(x => x[0] === c) || [, ''])[1];
+
+  // Dibujo de la pastilla (forma + color) o ícono según la presentación
+  function pillSVG(look, form, size = 28) {
+    const c1 = (look && look.color) || '#ffffff';
+    const line = 'stroke="rgba(15,23,42,.35)" stroke-width="1.2"';
+    const shine = '<ellipse cx="11" cy="11" rx="4" ry="2.2" fill="#fff" opacity=".45" transform="rotate(-30 11 11)"/>';
+    const shape = form === 'capsula' ? 'capsula' : (look && look.shape) || 'redonda';
+    let body;
+    if (shape === 'capsula') {
+      const c2 = (look && look.color2) || c1;
+      body = `<g transform="rotate(-35 16 16)"><rect x="3" y="10" width="26" height="12" rx="6" fill="${c2}" ${line}/>
+        <path d="M9 10H16V22H9A6 6 0 0 1 9 10Z" fill="${c1}" ${line}/><line x1="16" y1="10" x2="16" y2="22" ${line}/>
+        <ellipse cx="9" cy="13.2" rx="3.5" ry="1.2" fill="#fff" opacity=".45"/></g>`;
+      return `<svg class="pill-svg" viewBox="0 0 32 32" width="${size}" height="${size}" aria-hidden="true">${body}</svg>`;
+    }
+    const shapes = {
+      redonda: `<circle cx="16" cy="16" r="11.5" fill="${c1}" ${line}/>`,
+      ovalada: `<ellipse cx="16" cy="16" rx="13" ry="9" fill="${c1}" ${line}/>`,
+      oblonga: `<rect x="3" y="10" width="26" height="12" rx="6" fill="${c1}" ${line}/>`,
+      triangular: `<path d="M16 4.5 28 26H4Z" fill="${c1}" ${line} stroke-linejoin="round"/>`,
+      cuadrada: `<rect x="5.5" y="5.5" width="21" height="21" rx="4" fill="${c1}" ${line}/>`,
+      rombo: `<path d="M16 3 29 16 16 29 3 16Z" fill="${c1}" ${line} stroke-linejoin="round"/>`
+    };
+    const score = look && look.scored ? (shape === 'triangular' ? '<line x1="16" y1="9" x2="16" y2="25" stroke="rgba(15,23,42,.3)" stroke-width="1.2"/>' : '<line x1="16" y1="6" x2="16" y2="26" stroke="rgba(15,23,42,.3)" stroke-width="1.2"/>') : '';
+    return `<svg class="pill-svg" viewBox="0 0 32 32" width="${size}" height="${size}" aria-hidden="true">${shapes[shape] || shapes.redonda}${score}${shine}</svg>`;
+  }
+  const FORM_ICON = { jarabe: 'bottle', suspension: 'bottle', solucion: 'bottle', inyeccion: 'syringe', gotas: 'droplet', inhalador: 'inhaler' };
+  // Ícono de un medicamento para las listas
+  function medIc(m, extra = '') {
+    if (m && (SOLID.includes(m.form) || (m.look && m.look.color))) {
+      return `<div class="item-ic med-ic" ${extra} title="${esc(medLookText(m))}">${pillSVG(m.look, m.form, 30)}</div>`;
+    }
+    return `<div class="item-ic" style="background:var(--primary-soft);color:var(--primary)" ${extra}>${icon(FORM_ICON[m && m.form] || 'pill')}</div>`;
+  }
+  function medLookText(m) {
+    const l = m.look || {};
+    const P = PRESENTATIONS[m.form];
+    return [P && P.label, m.form !== 'capsula' && l.shape && PILL_SHAPES[l.shape].toLowerCase(), l.color && colorName(l.color).toLowerCase() + (l.color2 && l.color2 !== l.color ? ' y ' + colorName(l.color2).toLowerCase() : ''),
+      l.scored && 'ranurada', l.imprint && `grabado «${l.imprint}»`, l.brand].filter(Boolean).join(', ');
+  }
   const EVERY_OPTS = [[4, 'Cada 4 horas'], [6, 'Cada 6 horas'], [8, 'Cada 8 horas'], [12, 'Cada 12 horas'], [24, 'Una vez al día (24 h)'], [48, 'Cada 48 horas'], [72, 'Cada 72 horas'], [168, 'Una vez a la semana']];
   const fmtQty = q => {
     const n = Number(q), w = Math.floor(n), f = Math.round((n - w) * 100) / 100;
@@ -994,7 +1039,7 @@
     const realTxt = st === 'taken' && realAt && dateKey(realAt) === ds ? ' ' + timeKey(realAt) : '';
     return `<div class="item dose ${st || ''}">
       <button class="dose-btn ${st || ''}" data-act="dose" data-key="${d.key}" aria-label="${st ? 'Editar toma' : 'Marcar como tomada'}" title="${st ? 'Editar toma' : 'Marcar como tomada'}">${icon(st === 'skipped' ? 'skip' : 'check')}</button>
-      <div class="item-body"><div class="item-title">${esc(d.med.name)}</div>
+      <div class="item-body"><div class="item-title row" style="gap:6px;flex-wrap:nowrap">${SOLID.includes(d.med.form) || (d.med.look && d.med.look.color) ? pillSVG(d.med.look, d.med.form, 18) : ''}<span style="overflow:hidden;text-overflow:ellipsis">${esc(d.med.name)}</span></div>
         <div class="item-sub">${d.time}${doseLabel(d.med) ? ' · ' + esc(doseLabel(d.med)) : ''}${st === 'taken' ? ` · <span style="color:var(--ok)">Tomada${realTxt}</span>` : st === 'skipped' ? ' · Omitida' : past ? ' · <span style="color:var(--warn)">Pendiente</span>' : ''}</div>
         ${it && it.note ? `<div class="item-sub">${esc(it.note)}</div>` : ''}</div>
       ${st ? `<button class="icon-btn" data-act="dose" data-key="${d.key}" title="Editar toma" aria-label="Editar toma">${icon('edit')}</button>`
@@ -1025,7 +1070,7 @@
     modal({
       title: 'Editar toma',
       body: `
-        <div class="item" style="padding:0;border:0"><div class="item-ic" style="background:var(--primary-soft);color:var(--primary)">${icon('pill')}</div>
+        <div class="item" style="padding:0;border:0">${medIc(med)}
           <div class="item-body"><div class="item-title">${esc(med ? med.name : 'Medicamento eliminado')}</div>
           <div class="item-sub">${[med && doseLabel(med), `programada ${relDay(ds).toLowerCase()} a las ${t}`].filter(Boolean).map(esc).join(' · ')}</div></div></div>
         <div class="field"><span>Estado</span>
@@ -1110,13 +1155,15 @@
       <div class="card">
         <div class="card-head"><h3>${icon('pill')} Mis medicamentos</h3>
           <div class="row">${state.meds.length ? `<button class="btn outline small" data-act="meds-ics" title="Crea eventos repetitivos con alarma en el calendario de tu teléfono">${icon('calPlus')}<span class="hide-mobile">Añadir a calendario</span></button>` : ''}
+          <button class="btn outline small" data-act="med-lib" title="Biblioteca de medicamentos">${icon('list')}<span>Biblioteca</span></button>
           <button class="btn small hide-mobile" data-act="new-med">${icon('plus')} Agregar</button></div></div>
         ${state.meds.length ? `<div class="list">${state.meds.map(m => `
           <div class="item" style="${m.active === false ? 'opacity:.55' : ''}">
-            <div class="item-ic" style="background:var(--primary-soft);color:var(--primary)">${icon('pill')}</div>
+            ${medIc(m)}
             <div class="item-body"><div class="item-title">${esc(m.name)} ${doseLabel(m) ? `<span class="muted" style="font-weight:400">· ${esc(doseLabel(m))}</span>` : ''}</div>
               <div class="item-sub">${esc(schedLabel(m))}${m.end ? ' · hasta ' + fmtDate(m.end, { day: 'numeric', month: 'short' }) : ''}${m.active === false ? ' · Pausado' : ''}</div>
               ${m.active !== false && MS.isInterval(m) ? (() => { const n = MS.nextDoses(m, new Date(), 1)[0]; return n ? `<div class="item-sub" style="color:var(--primary)">Próxima toma: ${relDay(n.date)} ${n.time}</div>` : ''; })() : ''}
+              ${m.look && (m.look.color || m.look.brand || m.look.imprint) ? `<div class="item-sub">${esc(medLookText(m))}</div>` : ''}
               ${m.notes ? `<div class="item-sub">${esc(m.notes)}</div>` : ''}
               ${stockLine(m)}</div>
             <div class="item-actions">
@@ -1126,6 +1173,71 @@
           : emptyState('pill', 'No has agregado medicamentos', `<button class="btn ghost small" style="margin-top:10px" data-act="new-med">${icon('plus')} Agregar medicamento</button>`)}
       </div>
     </div>`;
+  }
+
+  // Concentración: número, o texto para combinaciones ("80/12.5")
+  const parseStrength = v => { v = String(v || '').trim().replace(',', '.'); return !v ? null : /^\d+(\.\d+)?$/.test(v) ? +v : v; };
+  function readLook(f) {
+    const val = n => { const r = $(`input[name="${n}"]:checked`, f); return r ? r.value : ''; };
+    const lk = { shape: f.form.value === 'capsula' ? 'capsula' : val('shape') || 'redonda', color: val('color'), color2: f.form.value === 'capsula' ? val('color2') : '',
+      scored: f.form.value !== 'capsula' && f.scored.checked, imprint: f.imprint.value.trim(), brand: f.brand.value.trim() };
+    for (const k of Object.keys(lk)) if (!lk[k]) delete lk[k];
+    return lk;
+  }
+  const presLabel = p => `${(PRESENTATIONS[p.form] || { label: p.form }).label}${p.strength !== '' && p.strength != null ? ' ' + String(p.strength).replace(/\./g, ',') + ' ' + (p.unit || '') : ''}`.trim();
+  const normTxt = t => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  // Mis medicamentos (con su apariencia) + biblioteca general
+  function libEntries() {
+    const mine = new Map();
+    for (const m of state.meds) {
+      const k = normTxt(m.name);
+      const e = mine.get(k) || { name: m.name, group: 'Mis medicamentos', mine: true, pres: [] };
+      if (m.form || m.strength) e.pres.push({ form: m.form, strength: m.strength ?? '', unit: m.unit, look: m.look });
+      mine.set(k, e);
+    }
+    return [...mine.values(), ...(window.MED_LIBRARY || [])];
+  }
+  function libSearch(q, limit) {
+    const t = normTxt(q).trim();
+    if (!t) return [];
+    const all = libEntries();
+    const starts = all.filter(e => normTxt(e.name).startsWith(t));
+    const has = all.filter(e => !starts.includes(e) && normTxt(e.name).includes(t));
+    return [...starts, ...has].slice(0, limit || 50);
+  }
+  // Lista agrupada (Mis medicamentos, Presión arterial…) con botones data-sug
+  function libListHTML(list, grouped) {
+    if (!list.length) return `<div class="small muted" style="padding:10px">No está en la biblioteca: escribe el nombre tal cual.</div>`;
+    let last = null;
+    return list.map((e, i) => {
+      const head = grouped && e.group !== last ? `<div class="lib-group">${esc(e.group)}</div>` : '';
+      last = e.group;
+      const p0 = e.pres[0];
+      return `${head}<button type="button" class="lib-item" data-sug="${i}"><span class="lib-ic">${p0 && p0.look && p0.look.color ? pillSVG(p0.look, p0.form, 22) : icon(FORM_ICON[p0 && p0.form] || 'pill')}</span>
+        <span class="item-body"><b>${esc(e.name)}</b><small>${esc(e.mine ? 'Mis medicamentos' + (e.pres.length ? ' · ' + e.pres.map(presLabel).join(' · ') : '') : e.pres.map(presLabel).join(' · '))}</small></span></button>`;
+    }).join('');
+  }
+  // Ventana de biblioteca (desde Medicamentos): al elegir abre el formulario ya llenado
+  function medLibrary() {
+    let cur = libEntries();
+    modal({
+      title: 'Biblioteca de medicamentos', submit: 'Cerrar', cancel: null,
+      body: `<input type="search" name="q" placeholder="Buscar medicamento…" autocomplete="off">
+        <div class="lib-list" id="libList">${libListHTML(cur, true)}</div>
+        <p class="small muted" style="margin:0">Referencia general de presentaciones comunes en México. Confirma siempre la dosis con tu receta.</p>`,
+      onOpen: f => {
+        f.q.addEventListener('input', () => { cur = f.q.value.trim() ? libSearch(f.q.value, 80) : libEntries(); $('#libList').innerHTML = libListHTML(cur, true); });
+        f.q.addEventListener('keydown', e => { if (e.key === 'Enter') e.preventDefault(); });
+        f.addEventListener('click', e => {
+          const b = e.target.closest('[data-sug]');
+          if (!b) return;
+          const entry = cur[+b.dataset.sug];
+          $('#modal').close();
+          setTimeout(() => medForm({ name: entry.name, libEntry: entry }), 0);
+        });
+      },
+      onSubmit: () => {}
+    });
   }
 
   // Inventario en la lista de medicamentos
@@ -1179,7 +1291,9 @@
   function medForm(m) {
     const now = new Date();
     const round5 = timeKey(new Date(Math.floor(now.getTime() / 300000) * 300000));
-    m = m || { mode: 'interval', every: 8, firstTime: round5, qty: 1, form: 'tableta', unit: 'mg', times: ['08:00'], days: [0, 1, 2, 3, 4, 5, 6], start: today(), active: true };
+    if (!m || !m.id) m = Object.assign({ mode: 'interval', every: 8, firstTime: round5, qty: 1, form: 'tableta', unit: 'mg', times: ['08:00'], days: [0, 1, 2, 3, 4, 5, 6], start: today(), active: true }, m || {});
+    const look = Object.assign({ shape: 'redonda', color: '', color2: '', scored: false, brand: '', imprint: '' }, m.look || {});
+    const units = STRENGTH_UNITS.includes(m.unit) || !m.unit ? STRENGTH_UNITS : [...STRENGTH_UNITS, m.unit];
     const legacy = !m.form && !m.strength && !m.qty ? parseLegacyDose(m.dose) : {};
     const stock0 = m.id ? MS.medStock(m, state.intakes) : null;
     const v = Object.assign({}, m, legacy);
@@ -1191,13 +1305,16 @@
     modal({
       title: m.id ? 'Editar medicamento' : 'Nuevo medicamento',
       body: `
-        <label class="field"><span>Nombre del medicamento</span><input name="name" required placeholder="Ej. Losartán, Paracetamol…" value="${esc(v.name)}"></label>
+        <div class="field"><span class="row between" style="flex-wrap:nowrap">Nombre del medicamento <button type="button" class="link-btn small" data-lib-open>${icon('list')} Biblioteca</button></span>
+          <input name="name" required placeholder="Escribe para buscar: losartán, paracetamol…" value="${esc(v.name)}" autocomplete="off">
+          <div class="lib-sug" id="libSug" hidden></div>
+          <div class="lib-pres" id="libPres" hidden></div></div>
         <label class="field"><span>Presentación</span><select name="form"><option value="">Seleccionar…</option>
           ${Object.entries(PRESENTATIONS).map(([k, P]) => `<option value="${k}" ${v.form === k ? 'selected' : ''}>${P.label}</option>`).join('')}</select></label>
         <div class="fields">
           <div class="field"><span>Dosis / concentración</span><div class="combo">
-            <input name="strength" type="number" inputmode="decimal" step="any" min="0" placeholder="50" value="${esc(v.strength)}">
-            <select name="unit" aria-label="Unidad">${STRENGTH_UNITS.map(u => `<option ${v.unit === u ? 'selected' : ''}>${u}</option>`).join('')}</select></div></div>
+            <input name="strength" type="text" inputmode="decimal" placeholder="50" value="${esc(v.strength)}" title="Número; para combinaciones usa /, p. ej. 80/12.5">
+            <select name="unit" aria-label="Unidad">${units.map(u => `<option ${v.unit === u ? 'selected' : ''}>${u}</option>`).join('')}</select></div></div>
           <div class="field"><span>Cantidad por toma</span><div class="combo">
             <input name="qty" type="number" inputmode="decimal" step="any" min="0" placeholder="1" value="${esc(v.qty)}">
             <span class="unit-suffix" id="qtyUnit"></span></div></div>
@@ -1223,6 +1340,18 @@
           <label class="field"><span>Duración (días)</span><input type="number" name="durDays" inputmode="numeric" min="1" max="3650" placeholder="Continuo" value="${durDays}"></label>
           <label class="field"><span>Hasta (opcional)</span><input type="date" name="end" value="${esc(v.end)}"></label>
         </div>
+        <div data-look ${SOLID.includes(v.form) ? '' : 'hidden'} class="stack-v" style="gap:12px">
+          <div class="form-section">Apariencia (opcional)</div>
+          <div class="look-head"><div class="pill-big" id="pillPrev"></div><div class="small muted" id="pillTxt">Elige la forma y el color para reconocerla fácilmente.</div></div>
+          <div class="field" data-shape-field><span>Forma</span><div class="shape-pick">${Object.entries(PILL_SHAPES).map(([k, l]) => `<label title="${l}"><input type="radio" name="shape" value="${k}" ${look.shape === k ? 'checked' : ''}><span>${pillSVG({ shape: k, color: '#e2e8f0' }, 'tableta', 30)}<small>${l}</small></span></label>`).join('')}</div></div>
+          <div class="field"><span data-c1-label>Color</span><div class="swatches">${PILL_COLORS.map(([c, l]) => `<label title="${l}"><input type="radio" name="color" value="${c}" ${look.color === c ? 'checked' : ''}><span style="background:${c}"></span></label>`).join('')}</div></div>
+          <div class="field" data-c2-field hidden><span>Color de la otra mitad</span><div class="swatches">${PILL_COLORS.map(([c, l]) => `<label title="${l}"><input type="radio" name="color2" value="${c}" ${look.color2 === c ? 'checked' : ''}><span style="background:${c}"></span></label>`).join('')}</div></div>
+          <label class="check" data-score-field><input type="checkbox" name="scored" ${look.scored ? 'checked' : ''}> Tiene ranura (línea para partirla)</label>
+          <div class="fields">
+            <label class="field"><span>Grabado</span><input name="imprint" value="${esc(look.imprint)}" placeholder="Ej. 50, M 15" maxlength="20"></label>
+            <label class="field"><span>Marca o laboratorio</span><input name="brand" value="${esc(look.brand)}" placeholder="Ej. genérico IMSS" maxlength="40"></label>
+          </div>
+        </div>
         <div class="preview-box" id="medPreview"></div>
         <label class="field"><span>Indicaciones</span><textarea name="notes" placeholder="Ej. en ayunas, con alimentos…">${esc(v.notes)}</textarea></label>
         <div class="form-section">Inventario (opcional)</div>
@@ -1240,8 +1369,63 @@
           start: f.start.value || today(), end: f.end.value, active: true,
           form: f.form.value, qty: f.qty.value, strength: f.strength.value, unit: f.unit.value
         });
+        // Biblioteca: sugerencias al escribir y concentraciones del medicamento elegido
+        const setPres = p => {
+          if (p.form) f.form.value = p.form;
+          f.strength.value = p.strength ?? '';
+          if (p.unit) {
+            if (![...f.unit.options].some(o => o.value === p.unit)) f.unit.add(new Option(p.unit, p.unit));
+            f.unit.value = p.unit;
+          }
+          if (p.look) for (const [k, val] of Object.entries(p.look)) {
+            if (k === 'scored') f.scored.checked = !!val;
+            else if (k === 'imprint' || k === 'brand') f[k].value = val || '';
+            else { const r = $(`input[name="${k}"][value="${val}"]`, f); if (r) r.checked = true; }
+          }
+          $$('#libPres button', f).forEach(b => b.classList.toggle('active', b.dataset.i !== undefined && libPresList[+b.dataset.i] === p));
+          update();
+        };
+        let libPresList = [];
+        const showPres = entry => {
+          libPresList = entry.pres;
+          const box = $('#libPres');
+          box.hidden = !entry.pres.length;
+          box.innerHTML = entry.pres.length ? `<div class="small muted">Elige la presentación:</div><div class="row" style="gap:6px">${entry.pres.map((p, i) => `<button type="button" class="chip-btn" data-i="${i}">${presLabel(p)}</button>`).join('')}</div>` : '';
+          if (entry.pres.length === 1) setPres(entry.pres[0]);
+          else if (entry.pres.length && entry.pres.every(x => x.form === entry.pres[0].form)) { f.form.value = entry.pres[0].form; update(); }
+        };
+        const sug = $('#libSug');
+        f.name.addEventListener('input', () => {
+          const list = f.name.value.trim().length < 2 ? [] : libSearch(f.name.value, 8);
+          sug.hidden = !list.length;
+          sug.innerHTML = libListHTML(list, false);
+          sug._list = list;
+          $('#libPres').hidden = true;
+        });
+        f.addEventListener('click', e => {
+          const sb = e.target.closest('[data-sug]');
+          if (sb) { const entry = sug._list[+sb.dataset.sug]; f.name.value = entry.name; sug.hidden = true; sug.classList.remove('full'); showPres(entry); }
+          const pb = e.target.closest('#libPres [data-i]');
+          if (pb) setPres(libPresList[+pb.dataset.i]);
+          if (e.target.closest('[data-lib-open]')) {
+            const list = f.name.value.trim().length >= 2 ? libSearch(f.name.value, 80) : libEntries();
+            sug.innerHTML = libListHTML(list, true); sug._list = list; sug.hidden = false; sug.classList.add('full');
+            f.name.focus();
+          }
+        });
         const update = () => {
           const P = PRESENTATIONS[f.form.value];
+          // Apariencia: solo para tabletas, cápsulas, pastillas y grageas
+          const solid = SOLID.includes(f.form.value), caps = f.form.value === 'capsula';
+          $('[data-look]', f).hidden = !solid;
+          $('[data-shape-field]', f).hidden = caps;
+          $('[data-score-field]', f).hidden = caps;
+          $('[data-c2-field]', f).hidden = !caps;
+          $('[data-c1-label]', f).textContent = caps ? 'Color de una mitad' : 'Color';
+          const lk = readLook(f);
+          $('#pillPrev').innerHTML = pillSVG(lk, f.form.value, 64);
+          const desc = medLookText({ form: f.form.value, look: lk });
+          $('#pillTxt').textContent = lk.color ? cap(desc) : 'Elige la forma y el color para reconocerla fácilmente.';
           $('#qtyUnit').textContent = P ? (Number(f.qty.value || 1) <= 1 ? P.u1 : P.u2) : 'unidad(es)';
           const d = draft();
           const next = MS.nextDoses(d, new Date(Math.max(Date.now(), at(d.start).getTime())) , 6);
@@ -1276,6 +1460,7 @@
         });
         f.addEventListener('change', update);
         update();
+        if (m.libEntry) showPres(m.libEntry);
       },
       onSubmit: async f => {
         if (!f.reportValidity()) return false;
@@ -1289,11 +1474,13 @@
         // Se conservan todos los campos existentes del medicamento (compatibilidad con datos ya guardados)
         const med = Object.assign({}, m, {
           id: m.id || uid(), name: f.name.value.trim(), form: f.form.value,
-          strength: f.strength.value ? +f.strength.value : null, unit: f.unit.value,
+          strength: parseStrength(f.strength.value), unit: f.unit.value,
           qty: f.qty.value ? +f.qty.value : null, mode: modeV, every: +f.every.value, firstTime: f.firstTime.value,
           times: times.length ? times : (m.times || []), days: dsel.length ? dsel : (m.days || []),
           start: f.start.value, end: f.end.value, notes: f.notes.value.trim(), active: f.active.checked
         });
+        delete med.libEntry;
+        if (SOLID.includes(med.form)) med.look = readLook(f); else delete med.look;
         med.dose = doseLabel(Object.assign({}, med, { dose: m.dose || '' }));
         // Inventario: solo se reinicia el conteo si cambiaste la cantidad
         const stockIn = f.stock.value === '' ? null : +f.stock.value;
@@ -2203,6 +2390,7 @@
 
     'new-med': () => medForm(),
     'edit-med': el => medForm(state.meds.find(m => m.id === el.dataset.id)),
+    'med-lib': () => medLibrary(),
     'med-refill': el => refillForm(state.meds.find(m => m.id === el.dataset.id)),
     adrange: el => { state.adRange = +el.dataset.v; render(); },
     'del-med': async el => {
@@ -2458,7 +2646,7 @@
 
       <div class="notif-section"><h3>${icon('alert')} Pendientes de hoy ${pend.length ? `<span class="chip" style="color:var(--warn)">${pend.length}</span>` : ''}</h3>
         ${pend.length ? `<div class="list">${pend.map(d => `<div class="item">
-          <div class="item-ic" style="background:color-mix(in srgb, var(--warn) 15%, transparent);color:var(--warn)">${icon('pill')}</div>
+          ${medIc(d.med)}
           <div class="item-body"><div class="item-title">${esc(d.med.name)}</div><div class="item-sub">${d.time}${doseLabel(d.med) ? ' · ' + esc(doseLabel(d.med)) : ''}</div></div>
           <div class="item-actions"><button type="button" class="icon-btn" data-act="dose-skip" data-key="${d.key}" title="Omitir" aria-label="Omitir">${icon('skip')}</button>
           <button type="button" class="btn small" data-act="dose" data-key="${d.key}">${icon('check')} Tomada</button></div></div>`).join('')}</div>`

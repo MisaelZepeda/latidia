@@ -286,6 +286,35 @@ a { color: var(--primary); }
 .q-add { display: flex; gap: 6px; margin-bottom: 8px; }
 .q-add input { flex: 1; min-width: 0; }
 
+/* Medicamentos: biblioteca y apariencia */
+.med-ic { background: var(--surface-2); }
+.pill-svg { flex: none; display: block; }
+.lib-sug { border: 1px solid var(--border); border-radius: 12px; margin-top: 6px; max-height: 260px; overflow-y: auto; background: var(--surface); }
+.lib-sug.full { max-height: 340px; }
+.lib-list { max-height: 55dvh; overflow-y: auto; border: 1px solid var(--border); border-radius: 12px; }
+.lib-group { position: sticky; top: 0; background: var(--surface-2); padding: 6px 12px; font-size: .74rem; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--primary); z-index: 1; }
+.lib-item { display: flex; align-items: center; gap: 10px; width: 100%; padding: 9px 12px; border: 0; border-top: 1px solid var(--border); background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.lib-group + .lib-item, .lib-item:first-child { border-top: 0; }
+.lib-item b { display: block; font-weight: 600; }
+.lib-item small { display: block; color: var(--muted); font-size: .8rem; }
+.lib-ic { width: 28px; display: grid; place-items: center; color: var(--primary); flex: none; }
+@media (hover: hover) { .lib-item:hover { background: var(--surface-2); } }
+.lib-pres { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
+.chip-btn { border: 1px solid var(--border); background: var(--surface); color: var(--text); border-radius: 999px; padding: 6px 12px; font: inherit; font-size: .85rem; cursor: pointer; }
+.chip-btn.active { background: var(--primary-soft); color: var(--primary); border-color: var(--primary); font-weight: 600; }
+.look-head { display: flex; align-items: center; gap: 14px; }
+.pill-big { width: 76px; height: 76px; border-radius: 18px; background: var(--surface-2); display: grid; place-items: center; flex: none; }
+.shape-pick { display: grid; grid-template-columns: repeat(auto-fill, minmax(72px, 1fr)); gap: 6px; }
+.shape-pick label, .swatches label { cursor: pointer; }
+.shape-pick input, .swatches input { position: absolute; opacity: 0; pointer-events: none; }
+.shape-pick span { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 6px 2px; border-radius: 12px; border: 1px solid var(--border); }
+.shape-pick small { font-size: .72rem; color: var(--muted); }
+.shape-pick input:checked + span { border-color: var(--primary); background: var(--primary-soft); }
+.swatches { display: flex; flex-wrap: wrap; gap: 8px; }
+.swatches span { display: block; width: 32px; height: 32px; border-radius: 50%; border: 1px solid rgba(15,23,42,.25); }
+.swatches input:checked + span { outline: 3px solid var(--primary); outline-offset: 2px; }
+.shape-pick input:focus-visible + span, .swatches input:focus-visible + span { outline: 2px solid var(--primary); outline-offset: 2px; }
+
 /* Agua */
 .water-top { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 12px; }
 .water-total { font-size: 2rem; font-weight: 700; line-height: 1.1; color: var(--primary); }
